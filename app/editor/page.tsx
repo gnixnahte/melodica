@@ -2,9 +2,13 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { createDefaultProject } from "@/lib/defaultProject";
+import type { Project } from "@/types/project";
 
 export default function EditorPage() {
-  const [count, setCount] = useState(0);
+  const [project, setProject] = useState<Project>(() =>
+    createDefaultProject("Melodica Project")
+  );
 
   return (
     <main className="min-h-screen p-8">
@@ -19,15 +23,30 @@ export default function EditorPage() {
             </Link>
         </div>
       </header>
-      <p className="mt-2 text-sm opacity-80">
-            This page must be a client component (audio + UI interaction).
-      </p>
+
+      <div className="mt-6 rounded-lg border p-4 text-sm">
+        <div><span className="font-medium">Name:</span> {project.name}</div>
+        <div><span className="font-medium">BPM:</span> <input type="number" value={project.bpm} onChange={(e) => setProject((p) => ({ ...p, bpm: parseInt(e.target.value) }))} /> </div>
+        <div><span className="font-medium">Scale:</span> {project.scale}</div>
+        <div><span className="font-medium">Octaves:</span> {project.octaves}</div>
+        <div><span className="font-medium">Master Volume:</span> {project.settings.masterVolume}</div>
+        <div><span className="font-medium">Reverb Wet:</span> {project.settings.reverbWet}</div>
+        <div><span className="font-medium">Reverb Decay:</span> {project.settings.reverbDecay}</div>
+        <div><span className="font-medium">Notes:</span> {project.notes.length}</div>
+        <div><span className="font-medium">Reverb:</span> {project.settings.reverbWet}</div>
+      </div>
 
       <button
         className="mt-6 rounded-md bg-black px-4 py-2 text-sm text-white"
-        onClick={() => setCount((c) => c + 1)}
+        onClick={() =>
+          setProject((p) => ({
+            ...p,
+            bpm: p.bpm + 1,
+            updatedAt: Date.now(),
+          }))
+        }
       >
-        Click test: {count}
+        BPM +1
       </button>
     </main>
   );

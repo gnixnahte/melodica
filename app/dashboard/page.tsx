@@ -22,12 +22,6 @@ export default function DashboardPage() {
             href="/"
             className="rounded-md border px-4 py-2 text-sm"
           >
-            Landing
-          </Link>
-          <Link
-            href="/login"
-            className="rounded-md border px-4 py-2 text-sm"
-          >
             Log Out
           </Link>
         </div>
