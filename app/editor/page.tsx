@@ -25,8 +25,8 @@ export default function EditorPage() {
       </header>
 
       <div className="mt-6 rounded-lg border p-4 text-sm">
-        <div><span className="font-medium">Name:</span> {project.name}</div>
-        <div><span className="font-medium">BPM:</span> <input type="number" value={project.bpm} onChange={(e) => setProject((p) => ({ ...p, bpm: parseInt(e.target.value) }))} /> </div>
+        <div><span className="font-medium">Name:</span><input style = {{textAlign: "right"}} type="text" value={project.name} onChange={(e) => setProject((p) => ({ ...p, name: e.target.value}))} /></div>
+        <div><span className="font-medium">BPM:</span><input type="number" value={project.bpm} onChange={(e) => setProject((p) => ({ ...p, bpm: parseInt(e.target.value) }))} /></div>
         <div><span className="font-medium">Scale:</span> {project.scale}</div>
         <div><span className="font-medium">Octaves:</span> {project.octaves}</div>
         <div><span className="font-medium">Master Volume:</span> {project.settings.masterVolume}</div>
