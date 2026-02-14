@@ -48,6 +48,25 @@ export default function EditorPage() {
       >
         BPM +1
       </button>
+      <button
+        className="mt-6 rounded-md bg-black px-4 py-2 text-sm text-white"
+        onClick={() => {
+          const newNote = {
+            id: crypto.randomUUID(),
+            pitch: "C4",
+            startBeat: 0,
+            durationBeats: 0.5,
+            velocity: 0.5,
+          };
+          setProject((p) => ({
+            ...p,
+            notes: [...p.notes, newNote],
+            updatedAt: Date.now(),
+          }));
+        }}
+      >
+        Add Note
+      </button>
     </main>
   );
 }
