@@ -7,8 +7,8 @@ import { getPitches } from "@/lib/pitches";
 import type { Project, NoteEvent } from "@/types/project";
 
 const GRID_BEATS = 40;
-const CELL_W = 45;
-const CELL_H = 40;
+const CELL_W = 55;
+const CELL_H = 45;
 
 function noteOccupies(note: NoteEvent, pitch: string, beat: number): boolean {
   return (
@@ -35,7 +35,7 @@ export default function EditorPage() {
 
 
   return (
-    <main className="min-h-screen pt-6 p-4 ">
+    <main className="h-screen flex flex-col">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Editor</h1>
         <div className="mt-4 text-sm">
@@ -103,70 +103,70 @@ export default function EditorPage() {
         <div><span className="font-medium">Notes:</span> {project.notes.length}</div>
         <div><span className="font-medium">Reverb:</span> {project.settings.reverbWet}</div>
       </div>
-      <div className="overflow-auto flex flex-row mt-2 rounded-lg border pt-4 pl-1 text-sm max-h-[70vh]">
-        <ul className="flex flex-col mr-2 p-1 rounded-md border text-lg list-none shrink-0">
-          {getPitches(project.scale, project.octaves).map((pitch) => (
-            <li
-              key={pitch}
-              className="flex items-center shrink-0"
-              style={{ height: CELL_H }}
+      <div className="flex-1 overflow-auto border mt-2 mb-2 rounded-lg">
+  <div className="flex flex-row pt-2 pb-2 pl-1 text-sm">
+          <ul className="flex flex-col mr-2 py-0 px-1 rounded-md text-lg list-none shrink-0">
+            {getPitches(project.scale, project.octaves).map((pitch) => (
+              <li
+                key={pitch}
+                className="flex items-center shrink-0 pr-2 pl-2 rounded-md border"
+                style={{ height: CELL_H, minHeight: CELL_H }}
+              >
+                {pitch}
+              </li>
+            ))}
+          </ul>
+            <div
+              className="grid rounded-sm bg-neutral-600 "
+              style={{
+                gridTemplateColumns: `repeat(${GRID_BEATS}, ${CELL_W}px)`,
+                gridTemplateRows: `repeat(${getPitches(project.scale, project.octaves).length}, ${CELL_H}px)`,
+              }}
             >
-              {pitch}
-            </li>
-          ))}
-        </ul>
-        <div className="ml-2 rounded-md border overflow-hidden shrink-0">
-          <div
-            className="grid gap-px bg-neutral-200 dark:bg-neutral-700"
-            style={{
-              gridTemplateColumns: `repeat(${GRID_BEATS}, ${CELL_W}px)`,
-              gridTemplateRows: `repeat(${getPitches(project.scale, project.octaves).length}, ${CELL_H}px)`,
-            }}
-          >
-            {getPitches(project.scale, project.octaves).map((pitch) =>
-              Array.from({ length: GRID_BEATS }, (_, beat) => {
-                const filled = hasNoteAt(project.notes, pitch, beat);
-                const existing = getNoteAtStart(project.notes, pitch, beat);
-                return (
-                  <button
-                    key={`${pitch}-${beat}`}
-                    type="button"
-                    aria-label={`${pitch} beat ${beat} ${filled ? "on" : "off"}`}
-                    className={`w-[${CELL_W}px] h-[${CELL_H}px] border-0 p-0 cursor-pointer transition-colors ${
-                      filled
-                        ? "bg-emerald-500 hover:bg-emerald-600"
-                        : "bg-white dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700"
-                    }`}
-                    style={{ width: CELL_W, height: CELL_H }}
-                    onClick={() => {
-                      if (existing) {
-                        setProject((p) => ({
-                          ...p,
-                          notes: p.notes.filter((n) => n.id !== existing.id),
-                          updatedAt: Date.now(),
-                        }));
-                      } else {
-                        setProject((p) => ({
-                          ...p,
-                          notes: [
-                            ...p.notes,
-                            {
-                              id: crypto.randomUUID(),
-                              pitch,
-                              startBeat: beat,
-                              durationBeats: 1,
-                              velocity: 0.8,
-                            },
-                          ],
-                          updatedAt: Date.now(),
-                        }));
-                      }
-                    }}
-                  />
-                );
-              })
-            )}
-          </div>
+              {getPitches(project.scale, project.octaves).map((pitch) =>
+                Array.from({ length: GRID_BEATS }, (_, beat) => {
+                  const filled = hasNoteAt(project.notes, pitch, beat);
+                  const existing = getNoteAtStart(project.notes, pitch, beat);
+                  return (
+                    <button
+                      key={`${pitch}-${beat}`}
+                      type="button"
+                      aria-label={`${pitch} beat ${beat} ${filled ? "on" : "off"}`}
+                      className={`w-[${CELL_W}px] h-[${CELL_H}px] border-2 rounded-sm border-neutral-300 dark:border-neutral-600 p-0 cursor-pointer transition-colors ${
+                        filled
+                          ? "bg-emerald-500 hover:bg-emerald-600"
+                          : "bg-white dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+                      }`}
+                      style={{ width: CELL_W, height: CELL_H }}
+                      onClick={() => {
+                        if (existing) {
+                          setProject((p) => ({
+                            ...p,
+                            notes: p.notes.filter((n) => n.id !== existing.id),
+                            updatedAt: Date.now(),
+                          }));
+                        } else {
+                          setProject((p) => ({
+                            ...p,
+                            notes: [
+                              ...p.notes,
+                              {
+                                id: crypto.randomUUID(),
+                                pitch,
+                                startBeat: beat,
+                                durationBeats: 1,
+                                velocity: 0.8,
+                              },
+                            ],
+                            updatedAt: Date.now(),
+                          }));
+                        }
+                      }}
+                    />
+                  );
+                })
+              )}
+            </div>
         </div>
       </div>
       
