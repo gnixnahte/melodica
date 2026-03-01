@@ -12,7 +12,7 @@ const CELL_W = 25;
 const CELL_H = 45;
 
 const STEPS_PER_QUARTER = 2; // 8th-note grid
-const STEPS_PER_BAR = 8;     // 4/4 bar = 8 eighth notes
+const STEPS_PER_BAR = 8; // 4/4 bar = 8 eighth notes
 
 function stepSeconds(bpm: number) {
   return (60 / bpm) / STEPS_PER_QUARTER;
@@ -49,6 +49,24 @@ export default function EditorPage() {
 
   const synthRef = useRef<Tone.PolySynth | null>(null);
 
+  // Playhead state that works with dragging + setInterval
+  const playheadRef = useRef(0);
+  const isScrubbingRef = useRef(false);
+  const rulerRef = useRef<HTMLDivElement | null>(null);
+
+  const setPlayhead = (beat: number) => {
+    const clamped = Math.max(0, Math.min(GRID_BEATS - 1, beat));
+    playheadRef.current = clamped;
+    setCurrentBeat(clamped);
+  };
+
+  const beatFromClientX = (clientX: number, el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    const x = clientX - rect.left;
+    return Math.floor(x / CELL_W);
+  };
+
+  // Create synth once
   useEffect(() => {
     synthRef.current = new Tone.PolySynth(Tone.Synth).toDestination();
     return () => {
@@ -57,10 +75,18 @@ export default function EditorPage() {
     };
   }, []);
 
+  // Mouse up anywhere ends scrubbing
+  useEffect(() => {
+    const onUp = () => (isScrubbingRef.current = false);
+    window.addEventListener("mouseup", onUp);
+    return () => window.removeEventListener("mouseup", onUp);
+  }, []);
+
+  // Playback loop starts from playheadRef (NOT from 0)
   useEffect(() => {
     if (!isPlaying) return;
 
-    let beat = currentBeat;
+    let beat = playheadRef.current; // ✅ start from current playhead position
     const intervalMs = stepSeconds(project.bpm) * 1000;
 
     const id = window.setInterval(() => {
@@ -77,11 +103,12 @@ export default function EditorPage() {
       }
 
       beat = (beat + 1) % GRID_BEATS;
-      setCurrentBeat(beat);
+      playheadRef.current = beat; // keep ref in sync
+      setCurrentBeat(beat);       // update UI
     }, intervalMs);
 
     return () => window.clearInterval(id);
-  }, [isPlaying, project.bpm, project.notes, currentBeat]);
+  }, [isPlaying, project.bpm, project.notes]);
 
   return (
     <main className="h-screen flex flex-col">
@@ -102,7 +129,11 @@ export default function EditorPage() {
             type="text"
             value={project.name}
             onChange={(e) =>
-              setProject((p) => ({ ...p, name: e.target.value, updatedAt: Date.now() }))
+              setProject((p) => ({
+                ...p,
+                name: e.target.value,
+                updatedAt: Date.now(),
+              }))
             }
             size={project.name.length}
           />
@@ -127,7 +158,6 @@ export default function EditorPage() {
               }
 
               const clamped = Math.max(20, Math.min(400, parsed));
-
               setProject((p) => ({ ...p, bpm: clamped, updatedAt: Date.now() }));
               setBpmText(String(clamped));
               e.currentTarget.blur();
@@ -164,7 +194,7 @@ export default function EditorPage() {
           className="rounded-md bg-black px-4 py-2 text-sm text-white"
           onClick={async () => {
             await Tone.start();
-            setCurrentBeat(0);
+            // ✅ do NOT reset to 0; start from wherever the playhead currently is
             setIsPlaying(true);
           }}
         >
@@ -192,63 +222,104 @@ export default function EditorPage() {
             ))}
           </ul>
 
-          <div
-            className="grid rounded-sm bg-neutral-600"
-            style={{
-              gridTemplateColumns: `repeat(${GRID_BEATS}, ${CELL_W}px)`,
-              gridTemplateRows: `repeat(${getPitches(project.scale, project.octaves).length}, ${CELL_H}px)`,
-            }}
-          >
-            {getPitches(project.scale, project.octaves).map((pitch) =>
-              Array.from({ length: GRID_BEATS }, (_, beat) => {
-                const filled = hasNoteAt(project.notes, pitch, beat);
-                const existing = getNoteAtStart(project.notes, pitch, beat);
-                const isPlayhead = beat === currentBeat;
-                const isBarStart = beat % STEPS_PER_BAR === 0;
+          <div className="flex flex-col">
+            {/* Ruler / playhead tab row */}
+            <div
+              ref={rulerRef}
+              className="relative h-8 mb-1 rounded-sm bg-neutral-700 select-none"
+              style={{ width: GRID_BEATS * CELL_W }}
+              onMouseDown={(e) => {
+                if (!rulerRef.current) return;
+                const b = beatFromClientX(e.clientX, rulerRef.current);
+                setPlayhead(b);
+                isScrubbingRef.current = true;
+              }}
+              onMouseMove={(e) => {
+                if (!isScrubbingRef.current) return;
+                if (!rulerRef.current) return;
+                const b = beatFromClientX(e.clientX, rulerRef.current);
+                setPlayhead(b);
+              }}
+            >
+              {/* Vertical playhead line */}
+              <div
+                className="absolute top-0 bottom-0 w-[2px] bg-yellow-400"
+                style={{ left: currentBeat * CELL_W }}
+              />
 
-                return (
-                  <button
-                    key={`${pitch}-${beat}`}
-                    type="button"
-                    aria-label={`${pitch} beat ${beat} ${filled ? "on" : "off"}`}
-                    className={`rounded-sm p-0 cursor-pointer transition-colors
-                      border-2 border-neutral-300 dark:border-neutral-600
-                      ${isBarStart ? "border-l-4 border-l-neutral-900 dark:border-l-neutral-100" : ""}
-                      ${isPlayhead ? "ring-2 ring-yellow-400" : ""}
-                      ${
-                        filled
-                          ? "bg-emerald-500 hover:bg-emerald-600"
-                          : "bg-white dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700"
-                      }`}
-                    style={{ width: CELL_W, height: CELL_H }}
-                    onClick={() => {
-                      if (existing) {
-                        setProject((p) => ({
-                          ...p,
-                          notes: p.notes.filter((n) => n.id !== existing.id),
-                          updatedAt: Date.now(),
-                        }));
-                      } else {
-                        setProject((p) => ({
-                          ...p,
-                          notes: [
-                            ...p.notes,
-                            {
-                              id: crypto.randomUUID(),
-                              pitch,
-                              startBeat: beat,
-                              durationBeats: 1,
-                              velocity: 0.8,
-                            },
-                          ],
-                          updatedAt: Date.now(),
-                        }));
-                      }
-                    }}
-                  />
-                );
-              })
-            )}
+              {/* Draggable tab */}
+              <div
+                className="absolute top-0 h-8 w-4 -translate-x-1/2 cursor-grab active:cursor-grabbing"
+                style={{ left: currentBeat * CELL_W }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  isScrubbingRef.current = true;
+                }}
+              >
+                <div className="mx-auto mt-1 h-6 w-3 rounded-sm bg-yellow-400 shadow" />
+              </div>
+            </div>
+
+            {/* Grid */}
+            <div
+              className="grid rounded-sm bg-neutral-600"
+              style={{
+                gridTemplateColumns: `repeat(${GRID_BEATS}, ${CELL_W}px)`,
+                gridTemplateRows: `repeat(${getPitches(project.scale, project.octaves).length}, ${CELL_H}px)`,
+              }}
+            >
+              {getPitches(project.scale, project.octaves).map((pitch) =>
+                Array.from({ length: GRID_BEATS }, (_, beat) => {
+                  const filled = hasNoteAt(project.notes, pitch, beat);
+                  const existing = getNoteAtStart(project.notes, pitch, beat);
+
+                  const barIndex = Math.floor(beat / STEPS_PER_BAR);
+                  const isAltBar = barIndex % 2 === 1;
+
+                  return (
+                    <button
+                      key={`${pitch}-${beat}`}
+                      type="button"
+                      aria-label={`${pitch} beat ${beat} ${filled ? "on" : "off"}`}
+                      className={`rounded-sm p-0 cursor-pointer transition-colors
+                        border border-neutral-400 dark:border-neutral-600
+                        ${
+                          filled
+                            ? "bg-emerald-500 hover:bg-emerald-600"
+                            : isAltBar
+                              ? "bg-neutral-300 dark:bg-neutral-800 hover:bg-neutral-400 dark:hover:bg-neutral-700"
+                              : "bg-neutral-200 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800"
+                        }`}
+                      style={{ width: CELL_W, height: CELL_H }}
+                      onClick={() => {
+                        if (existing) {
+                          setProject((p) => ({
+                            ...p,
+                            notes: p.notes.filter((n) => n.id !== existing.id),
+                            updatedAt: Date.now(),
+                          }));
+                        } else {
+                          setProject((p) => ({
+                            ...p,
+                            notes: [
+                              ...p.notes,
+                              {
+                                id: crypto.randomUUID(),
+                                pitch,
+                                startBeat: beat,
+                                durationBeats: 1,
+                                velocity: 0.8,
+                              },
+                            ],
+                            updatedAt: Date.now(),
+                          }));
+                        }
+                      }}
+                    />
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
       </div>
