@@ -7,12 +7,12 @@ import { createDefaultProject } from "@/lib/defaultProject";
 import { getPitches } from "@/lib/pitches";
 import type { Project, NoteEvent } from "@/types/project";
 
-const GRID_BEATS = 160; // now "steps" (each step = 8th note)
+const GRID_BEATS = 160; // each column = 1 eighth note
 const CELL_W = 25;
 const CELL_H = 45;
 
-// 8th-note grid: 2 steps per quarter note
-const STEPS_PER_QUARTER = 2;
+const STEPS_PER_QUARTER = 2; // 8th-note grid
+const STEPS_PER_BAR = 8;     // 4/4 bar = 8 eighth notes
 
 function stepSeconds(bpm: number) {
   return (60 / bpm) / STEPS_PER_QUARTER;
@@ -49,7 +49,6 @@ export default function EditorPage() {
 
   const synthRef = useRef<Tone.PolySynth | null>(null);
 
-  // Create synth once
   useEffect(() => {
     synthRef.current = new Tone.PolySynth(Tone.Synth).toDestination();
     return () => {
@@ -58,7 +57,6 @@ export default function EditorPage() {
     };
   }, []);
 
-  // Simple scheduler (setInterval) using your grid steps
   useEffect(() => {
     if (!isPlaying) return;
 
@@ -66,7 +64,6 @@ export default function EditorPage() {
     const intervalMs = stepSeconds(project.bpm) * 1000;
 
     const id = window.setInterval(() => {
-      // play notes that start at this beat
       const notesToPlay = project.notes.filter((n) => n.startBeat === beat);
 
       for (const n of notesToPlay) {
@@ -162,12 +159,11 @@ export default function EditorPage() {
         </div>
       </div>
 
-      {/* Controls */}
       <div className="mt-3 flex gap-2">
         <button
           className="rounded-md bg-black px-4 py-2 text-sm text-white"
           onClick={async () => {
-            await Tone.start(); // must be called from a user gesture
+            await Tone.start();
             setCurrentBeat(0);
             setIsPlaying(true);
           }}
@@ -208,19 +204,22 @@ export default function EditorPage() {
                 const filled = hasNoteAt(project.notes, pitch, beat);
                 const existing = getNoteAtStart(project.notes, pitch, beat);
                 const isPlayhead = beat === currentBeat;
+                const isBarStart = beat % STEPS_PER_BAR === 0;
 
                 return (
                   <button
                     key={`${pitch}-${beat}`}
                     type="button"
                     aria-label={`${pitch} beat ${beat} ${filled ? "on" : "off"}`}
-                    className={`border-2 rounded-sm border-neutral-300 dark:border-neutral-600 p-0 cursor-pointer transition-colors ${
-                      isPlayhead ? "ring-2 ring-yellow-400" : ""
-                    } ${
-                      filled
-                        ? "bg-emerald-500 hover:bg-emerald-600"
-                        : "bg-white dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700"
-                    }`}
+                    className={`rounded-sm p-0 cursor-pointer transition-colors
+                      border-2 border-neutral-300 dark:border-neutral-600
+                      ${isBarStart ? "border-l-4 border-l-neutral-900 dark:border-l-neutral-100" : ""}
+                      ${isPlayhead ? "ring-2 ring-yellow-400" : ""}
+                      ${
+                        filled
+                          ? "bg-emerald-500 hover:bg-emerald-600"
+                          : "bg-white dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+                      }`}
                     style={{ width: CELL_W, height: CELL_H }}
                     onClick={() => {
                       if (existing) {
@@ -238,7 +237,7 @@ export default function EditorPage() {
                               id: crypto.randomUUID(),
                               pitch,
                               startBeat: beat,
-                              durationBeats: 1, // 1 step = 1 eighth note
+                              durationBeats: 1,
                               velocity: 0.8,
                             },
                           ],
@@ -254,7 +253,6 @@ export default function EditorPage() {
         </div>
       </div>
 
-      {/* Your debug buttons (kept, but fixed duration to integer steps) */}
       <button
         className="mt-2 rounded-md bg-black px-4 py-2 text-sm text-white"
         onClick={() =>
@@ -275,7 +273,7 @@ export default function EditorPage() {
             id: crypto.randomUUID(),
             pitch: "C4",
             startBeat: 0,
-            durationBeats: 1, // 1 step (8th note). Use 2 for a quarter note.
+            durationBeats: 1,
             velocity: 0.5,
           };
           setProject((p) => ({
