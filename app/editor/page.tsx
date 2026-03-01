@@ -210,17 +210,23 @@ export default function EditorPage() {
 
       <div className="flex-1 overflow-auto border mt-2 mb-2 rounded-lg">
         <div className="flex flex-row pt-2 pb-2 pl-1 text-sm">
-          <ul className="flex flex-col mr-2 py-0 px-1 rounded-md text-lg list-none shrink-0">
-            {getPitches(project.scale, project.octaves).map((pitch) => (
-              <li
-                key={pitch}
-                className="flex items-center shrink-0 pr-2 pl-2 rounded-md border"
-                style={{ height: CELL_H, minHeight: CELL_H }}
-              >
-                {pitch}
-              </li>
-            ))}
-          </ul>
+          {/* Left labels column */}
+          <div className="flex flex-col mr-2 shrink-0">
+            {/* Spacer to match ruler height */}
+            <div className="h-8 mb-1" />
+
+            <ul className="flex flex-col py-0 px-1 rounded-md text-lg list-none">
+              {getPitches(project.scale, project.octaves).map((pitch) => (
+                <li
+                  key={pitch}
+                  className="flex items-center pr-2 pl-2 rounded-md border"
+                  style={{ height: CELL_H, minHeight: CELL_H }}
+                >
+                  {pitch}
+                </li>
+              ))}
+            </ul>
+          </div>
 
           <div className="flex flex-col">
             {/* Ruler / playhead tab row */}
@@ -243,7 +249,7 @@ export default function EditorPage() {
             >
               {/* Vertical playhead line */}
               <div
-                className="absolute top-0 bottom-0 w-[2px] bg-yellow-400"
+                className="absolute top-0 bottom-[-650] w-[2px] bg-yellow-400"
                 style={{ left: currentBeat * CELL_W }}
               />
 
