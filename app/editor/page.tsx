@@ -11,12 +11,15 @@ import type { Project, NoteEvent, DrumTrack } from "@/types/project";
 const GRID_BEATS = 160; // each column = 1 eighth note
 const CELL_W = 25;
 const CELL_H = 45;
+const DRUM_STEPS_PER_QUARTER = 4; // 16th notes
+const DRUM_GRID_BEATS = GRID_BEATS * 2; 
+const DRUM_STEPS_PER_BAR = 16;    // 16ths per bar in 4/4
 
-const STEPS_PER_QUARTER = 2; // 8th-note grid
+const NOTE_STEPS_PER_QUARTER = 2; // 8th-note grid
 const STEPS_PER_BAR = 8; // 4/4 bar = 8 eighth notes
 
-function stepSeconds(bpm: number) {
-  return (60 / bpm) / STEPS_PER_QUARTER;
+function clockStepSeconds(bpm: number) {
+  return (60 / bpm) / DRUM_STEPS_PER_QUARTER; // ✅ 16th-note clock
 }
 
 function noteOccupies(note: NoteEvent, pitch: string, beat: number): boolean {
@@ -47,7 +50,9 @@ export default function EditorPage() {
   const [bpmText, setBpmText] = useState(String(project.bpm));
 
   const [isPlaying, setIsPlaying] = useState(false);
+  const [currentStep16, setCurrentStep16] = useState(0);
   const [currentBeat, setCurrentBeat] = useState(0);
+  const playheadStep16Ref = useRef(0);
 
   //synth and keys setup
   const keys = project.scaleFamily === "MAJOR" ? ALL_MAJOR_KEYS : ALL_MINOR_KEYS;
@@ -68,19 +73,32 @@ export default function EditorPage() {
   const drumScrollRef = useRef<HTMLDivElement | null>(null);
   const syncingScrollRef = useRef<"notes" | "drums" | null>(null);
 
+  const DRUM_CELL_W = CELL_W / 2; // 16th cell width
+
+  const [scrollLeft, setScrollLeft] = useState(0);
+
+  const playheadPxNotes = currentBeat * CELL_W;
+  const playheadPxDrums = currentBeat * CELL_W/2 * 2; // because drums have 2x columns
+
   const syncScroll = (from: "notes" | "drums") => {
     if (!noteScrollRef.current || !drumScrollRef.current) return;
     if (syncingScrollRef.current && syncingScrollRef.current !== from) return;
-
+  
     syncingScrollRef.current = from;
-
+  
+    const newLeft =
+      from === "notes"
+        ? noteScrollRef.current.scrollLeft
+        : drumScrollRef.current.scrollLeft;
+  
+    setScrollLeft(newLeft);
+  
     if (from === "notes") {
-      drumScrollRef.current.scrollLeft = noteScrollRef.current.scrollLeft;
+      drumScrollRef.current.scrollLeft = newLeft;
     } else {
-      noteScrollRef.current.scrollLeft = drumScrollRef.current.scrollLeft;
+      noteScrollRef.current.scrollLeft = newLeft;
     }
-
-    // release on next frame so it doesn't loop
+  
     requestAnimationFrame(() => {
       syncingScrollRef.current = null;
     });
@@ -111,10 +129,11 @@ export default function EditorPage() {
     });
   };
 
-  const setPlayhead = (beat: number) => {
-    const clamped = Math.max(0, Math.min(GRID_BEATS - 1, beat));
-    playheadRef.current = clamped;
-    setCurrentBeat(clamped);
+  const setPlayhead = (beat8: number) => {
+    const clamped8 = Math.max(0, Math.min(GRID_BEATS - 1, beat8));
+    const step16 = clamped8 * 2;
+    playheadStep16Ref.current = step16;
+    setCurrentStep16(step16);
   };
 
   const beatFromClientX = (clientX: number, el: HTMLElement) => {
@@ -259,54 +278,41 @@ export default function EditorPage() {
   useEffect(() => {
     if (!isPlaying) return;
   
-    let beat = playheadRef.current; // start from playhead
-    const intervalMs = stepSeconds(project.bpm) * 1000;
+    let step16 = playheadStep16Ref.current; // ✅ 16th start
+    const intervalMs = clockStepSeconds(project.bpm) * 1000;
   
     const id = window.setInterval(() => {
-  
-      // ===== MELODIC NOTES =====
-      const notesToPlay = project.notes.filter(
-        (n) => n.startBeat === beat
-      );
-  
-      for (const n of notesToPlay) {
-        const durSec = n.durationBeats * stepSeconds(project.bpm);
-        synthRef.current?.triggerAttackRelease(
-          n.pitch,
-          durSec,
-          undefined,
-          n.velocity
-        );
-      }
-  
-      // ===== DRUMS =====
-      const drumHitsNow =
-        project.drumTracks
-          .flatMap((t) => t.hits)
-          .filter((h) => h.step === beat);
+      // ===== DRUMS (16th grid) =====
+      const drumHitsNow = project.drumTracks
+        .flatMap((t) => t.hits)
+        .filter((h) => h.step === step16);
   
       for (const h of drumHitsNow) {
         const v = h.velocity ?? 0.9;
-        const i = h.variant; // 0,1,2
+        const i = h.variant ?? 0;
   
-        if (h.drum === "kick")
-          kickRef.current[i]?.triggerAttackRelease("C1", "8n", undefined, v);
+        if (h.drum === "kick") kickRef.current[i]?.triggerAttackRelease("C1", "16n", undefined, v);
+        if (h.drum === "snare") snareRef.current[i]?.triggerAttackRelease("16n", undefined, v);
+        if (h.drum === "hat") hatRef.current[i]?.triggerAttackRelease("16n", v);
+        if (h.drum === "tom") tomRef.current[i]?.triggerAttackRelease("G2", "16n", undefined, v);
+      }
   
-        if (h.drum === "snare")
-          snareRef.current[i]?.triggerAttackRelease("16n", undefined, v);
+      // ===== MELODIC NOTES (8th grid) =====
+      // Only trigger melodic checks on EVEN 16th steps (0,2,4...) -> aligns with 8ths
+      if (step16 % 2 === 0) {
+        const beat8 = step16 / 2;
   
-        if (h.drum === "hat")
-          hatRef.current[i]?.triggerAttackRelease("16n", v);
-
-        if (h.drum === "tom")
-          tomRef.current[i]?.triggerAttackRelease("G2", "8n", undefined, v);
+        const notesToPlay = project.notes.filter((n) => n.startBeat === beat8);
+        for (const n of notesToPlay) {
+          const durSec = n.durationBeats * (60 / project.bpm) / NOTE_STEPS_PER_QUARTER;
+          synthRef.current?.triggerAttackRelease(n.pitch, durSec, undefined, n.velocity);
+        }
       }
   
       // ===== ADVANCE PLAYHEAD =====
-      beat = (beat + 1) % GRID_BEATS;
-      playheadRef.current = beat;
-      setCurrentBeat(beat);
-  
+      step16 = (step16 + 1) % DRUM_GRID_BEATS;
+      playheadStep16Ref.current = step16;
+      setCurrentStep16(step16);
     }, intervalMs);
   
     return () => window.clearInterval(id);
@@ -488,8 +494,7 @@ export default function EditorPage() {
             {/* playhead line (notes) */}
             <div
               className="absolute top-0 bottom-0 w-[2px] bg-yellow-400 pointer-events-none z-20"
-              style={{ left: currentBeat * CELL_W }}
-            />
+              style={{ left: (currentStep16 / 2) * CELL_W }}            />
 
             {/* ruler */}
             <div
@@ -609,94 +614,89 @@ export default function EditorPage() {
         </div>
 
         <div className="flex gap-2">
-          {/* ✅ Left “controls” column (make this narrower / icon-based later) */}
-          <div className="w-24 shrink-0" />
+          {/* LEFT FIXED CONTROLS (not scrollable) */}
+          <div className="w-14 shrink-0 space-y-2">
+            {project.drumTracks.map((track) => (
+              <button
+                key={track.id}
+                className="w-full h-6 rounded-md border text-xs"
+                type="button"
+              >
+                {track.drum}
+              </button>
+            ))}
+          </div>
 
-          {/* ✅ Scrollable drum grid area (synced with notes) */}
+          {/* RIGHT SCROLL AREA (only grid) */}
           <div
             ref={drumScrollRef}
             onScroll={() => syncScroll("drums")}
             className="relative overflow-x-auto"
             style={{ width: "100%" }}
           >
-            {/* ✅ playhead line (drums) */}
+            {/* playhead line (drums) */}
             <div
               className="absolute top-0 bottom-0 w-[2px] bg-yellow-400 pointer-events-none z-20"
-              style={{ left: currentBeat * CELL_W }}
+              style={{ left: currentStep16 * (CELL_W / 2) }}
             />
 
             <div className="space-y-2" style={{ width: GRID_BEATS * CELL_W }}>
               {project.drumTracks.map((track) => (
-                <div key={track.id} className="flex items-center gap-2">
-                  {/* lane control column (same width as spacer above) */}
-                  <div className="w-24 shrink-0 flex items-center justify-center">
-                    {/* Placeholder: icon button later */}
-                    <button className="rounded-md border px-2 py-1 text-xs">
-                      {track.drum}
-                    </button>
-                  </div>
+                <div key={track.id} className="grid" style={{ gridTemplateColumns: `repeat(${DRUM_GRID_BEATS}, ${CELL_W / 2}px)` }}>
+                  {Array.from({ length: DRUM_GRID_BEATS }, (_, step) => {
+                    const hit = track.hits.find((h) => h.step === step);
+                    const isAltBar = step % 2 === 1;
 
-                  {/* drum row grid */}
-                  <div
-                    className="grid"
-                    style={{ gridTemplateColumns: `repeat(${GRID_BEATS}, ${CELL_W}px)` }}
-                  >
-                    {Array.from({ length: GRID_BEATS }, (_, step) => {
-                      const barIndex = Math.floor(step / STEPS_PER_BAR);
-                      const isAltBar = barIndex % 2 === 1;
-                      const hit = track.hits.find((h) => h.step === step);
+                    return (
+                      <button
+                        key={`${track.id}-${step}`}
+                        className={`h-6 border border-neutral-300 dark:border-neutral-700 transition-colors
+                          ${
+                            hit
+                              ? "bg-emerald-500 hover:bg-emerald-600"
+                              : isAltBar
+                                ? "bg-neutral-200 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800"
+                                : "bg-white dark:bg-neutral-950 hover:bg-neutral-100 dark:hover:bg-neutral-900"
+                          }`}
+                        style={{ width: CELL_W / 2 }}
+                        onClick={() => {
+                          setProject((p) => ({
+                            ...p,
+                            drumTracks: p.drumTracks.map((t) => {
+                              if (t.id !== track.id) return t;
 
-                      return (
-                        <button
-                          key={`${track.id}-${step}`}
-                          className={`h-6 border border-neutral-300 dark:border-neutral-700
-                            ${hit ? "bg-emerald-500 hover:bg-emerald-600" : ""}
-                            ${
-                              !hit
-                                ? isAltBar
-                                  ? "bg-neutral-200 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800"
-                                  : "bg-white dark:bg-neutral-950 hover:bg-neutral-100 dark:hover:bg-neutral-900"
-                                : ""
-                            }`}
-                          style={{ width: CELL_W }}
-                          onClick={() => {
-                            setProject((p) => ({
-                              ...p,
-                              drumTracks: p.drumTracks.map((t) => {
-                                if (t.id !== track.id) return t;
+                              const existing = t.hits.find((h) => h.step === step);
+                              if (existing) {
+                                return { ...t, hits: t.hits.filter((h) => h.id !== existing.id) };
+                              }
 
-                                const existing = t.hits.find((h) => h.step === step);
-                                if (existing) {
-                                  return { ...t, hits: t.hits.filter((h) => h.id !== existing.id) };
-                                }
-
-                                return {
-                                  ...t,
-                                  hits: [
-                                    ...t.hits,
-                                    {
-                                      id: crypto.randomUUID(),
-                                      drum: t.drum,
-                                      step,
-                                      velocity: 0.9,
-                                      variant: t.variant,
-                                    },
-                                  ],
-                                };
-                              }),
-                              updatedAt: Date.now(),
-                            }));
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
+                              return {
+                                ...t,
+                                hits: [
+                                  ...t.hits,
+                                  {
+                                    id: crypto.randomUUID(),
+                                    drum: t.drum,
+                                    step,
+                                    velocity: 0.9,
+                                    variant: t.variant,
+                                  },
+                                ],
+                              };
+                            }),
+                            updatedAt: Date.now(),
+                          }));
+                        }}
+                      />
+                    );
+                  })}
                 </div>
               ))}
             </div>
           </div>
         </div>
       </div>
+
 
       <button
         className="mt-2 rounded-md bg-black px-4 py-2 text-sm text-white"
