@@ -4,8 +4,9 @@ import Link from "next/link";
 import * as Tone from "tone";
 import { useEffect, useRef, useState } from "react";
 import { createDefaultProject } from "@/lib/defaultProject";
-import { getPitches } from "@/lib/pitches";
-import type { Project, NoteEvent } from "@/types/project";
+import { getPitches, ALL_MAJOR_KEYS, ALL_MINOR_KEYS } from "@/lib/pitches";
+import type { KeyRoot, ScaleFamily } from "@/lib/pitches";
+import type { Project, NoteEvent, DrumTrack } from "@/types/project";
 
 const GRID_BEATS = 160; // each column = 1 eighth note
 const CELL_W = 25;
@@ -39,6 +40,7 @@ function hasNoteAt(notes: NoteEvent[], pitch: string, beat: number): boolean {
 }
 
 export default function EditorPage() {
+  
   const [project, setProject] = useState<Project>(() =>
     createDefaultProject("Melodica Project")
   );
@@ -47,12 +49,67 @@ export default function EditorPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentBeat, setCurrentBeat] = useState(0);
 
+  //synth and keys setup
+  const keys = project.scaleFamily === "MAJOR" ? ALL_MAJOR_KEYS : ALL_MINOR_KEYS;
   const synthRef = useRef<Tone.PolySynth | null>(null);
+  const kickRef = useRef<Tone.MembraneSynth[]>([]);
+  const snareRef = useRef<Tone.NoiseSynth[]>([]);
+  const hatRef = useRef<Tone.MetalSynth[]>([]);
+  const tomRef = useRef<Tone.MembraneSynth[]>([]);
 
   // Playhead state that works with dragging + setInterval
   const playheadRef = useRef(0);
   const isScrubbingRef = useRef(false);
   const rulerRef = useRef<HTMLDivElement | null>(null);
+  const pitches = getPitches(project.keyRoot, project.scaleFamily, project.lowOctave, project.highOctave);
+  const pitchSet = new Set(pitches);
+
+  const noteScrollRef = useRef<HTMLDivElement | null>(null);
+  const drumScrollRef = useRef<HTMLDivElement | null>(null);
+  const syncingScrollRef = useRef<"notes" | "drums" | null>(null);
+
+  const syncScroll = (from: "notes" | "drums") => {
+    if (!noteScrollRef.current || !drumScrollRef.current) return;
+    if (syncingScrollRef.current && syncingScrollRef.current !== from) return;
+
+    syncingScrollRef.current = from;
+
+    if (from === "notes") {
+      drumScrollRef.current.scrollLeft = noteScrollRef.current.scrollLeft;
+    } else {
+      noteScrollRef.current.scrollLeft = drumScrollRef.current.scrollLeft;
+    }
+
+    // release on next frame so it doesn't loop
+    requestAnimationFrame(() => {
+      syncingScrollRef.current = null;
+    });
+  };
+
+  // Convert "C#" + 4 => "C#4"
+  const keyToMidi = (key: KeyRoot, octave = 4) =>
+    Tone.Frequency(`${key}${octave}`).toMidi();
+
+  const transposeNotes = (notes: NoteEvent[], semitones: number) =>
+    notes.map((n) => {
+      const midi = Tone.Frequency(n.pitch).toMidi();
+      const newMidi = midi + semitones;
+      const newPitch = Tone.Frequency(newMidi, "midi").toNote(); // Tone-safe name like "C#4"
+      return { ...n, pitch: newPitch };
+    });
+
+  const handleKeyChange = (newKey: KeyRoot) => {
+    setProject((p) => {
+      const semitones = keyToMidi(newKey) - keyToMidi(p.keyRoot);
+
+      return {
+        ...p,
+        keyRoot: newKey,
+        notes: transposeNotes(p.notes, semitones),
+        updatedAt: Date.now(),
+      };
+    });
+  };
 
   const setPlayhead = (beat: number) => {
     const clamped = Math.max(0, Math.min(GRID_BEATS - 1, beat));
@@ -68,10 +125,126 @@ export default function EditorPage() {
 
   // Create synth once
   useEffect(() => {
-    synthRef.current = new Tone.PolySynth(Tone.Synth).toDestination();
+    // ===== MELODY SYNTH (poly) =====
+    synthRef.current = new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: "triangle" },
+      envelope: { attack: 0.01, decay: 0.15, sustain: 0.4, release: 0.25 },
+    }).toDestination();
+  
+    // ===== DRUMS: 3 variants each =====
+  
+    // KICKS (tight / boomy / clicky)
+    kickRef.current = [
+      new Tone.MembraneSynth({
+        pitchDecay: 0.05,
+        octaves: 7,
+        envelope: { attack: 0.001, decay: 0.16, sustain: 0 },
+      }).toDestination(),
+  
+      new Tone.MembraneSynth({
+        pitchDecay: 0.06,
+        octaves: 10,
+        envelope: { attack: 0.001, decay: 0.30, sustain: 0 },
+      }).toDestination(),
+  
+      new Tone.MembraneSynth({
+        pitchDecay: 0.03,
+        octaves: 6,
+        envelope: { attack: 0.001, decay: 0.12, sustain: 0 },
+      }).toDestination(),
+    ];
+  
+    // SNARES (crisp / thicker / tight)
+    snareRef.current = [
+      new Tone.NoiseSynth({
+        noise: { type: "white" },
+        envelope: { attack: 0.001, decay: 0.12, sustain: 0 },
+      }).toDestination(),
+  
+      new Tone.NoiseSynth({
+        noise: { type: "pink" },
+        envelope: { attack: 0.001, decay: 0.18, sustain: 0 },
+      }).toDestination(),
+  
+      new Tone.NoiseSynth({
+        noise: { type: "brown" },
+        envelope: { attack: 0.001, decay: 0.08, sustain: 0 },
+      }).toDestination(),
+    ];
+  
+    // HATS (short / open-ish / bright)
+    hatRef.current = [
+      (() => {
+        const h = new Tone.MetalSynth({
+          envelope: { attack: 0.001, decay: 0.05, release: 0.01 },
+          harmonicity: 5.1,
+          modulationIndex: 28,
+          resonance: 2500,
+          octaves: 1.2,
+        }).toDestination();
+        h.frequency.value = 250;
+        return h;
+      })(),
+    
+      (() => {
+        const h = new Tone.MetalSynth({
+          envelope: { attack: 0.001, decay: 0.11, release: 0.02 },
+          harmonicity: 5.1,
+          modulationIndex: 32,
+          resonance: 3500,
+          octaves: 1.6,
+        }).toDestination();
+        h.frequency.value = 300;
+        return h;
+      })(),
+    
+      (() => {
+        const h = new Tone.MetalSynth({
+          envelope: { attack: 0.001, decay: 0.07, release: 0.01 },
+          harmonicity: 5.1,
+          modulationIndex: 40,
+          resonance: 5200,
+          octaves: 1.4,
+        }).toDestination();
+        h.frequency.value = 220;
+        return h;
+      })(),
+    ];
+  
+    // TOMS (low / mid / high)
+    tomRef.current = [
+      new Tone.MembraneSynth({
+        pitchDecay: 0.03,
+        octaves: 4,
+        envelope: { attack: 0.001, decay: 0.22, sustain: 0 },
+      }).toDestination(),
+  
+      new Tone.MembraneSynth({
+        pitchDecay: 0.025,
+        octaves: 3,
+        envelope: { attack: 0.001, decay: 0.20, sustain: 0 },
+      }).toDestination(),
+  
+      new Tone.MembraneSynth({
+        pitchDecay: 0.02,
+        octaves: 2,
+        envelope: { attack: 0.001, decay: 0.18, sustain: 0 },
+      }).toDestination(),
+    ];
+  
+    // ===== CLEANUP =====
     return () => {
       synthRef.current?.dispose();
       synthRef.current = null;
+  
+      [...kickRef.current, ...snareRef.current, ...hatRef.current, ...tomRef.current].forEach(
+        (inst) => inst.dispose()
+      );
+  
+      kickRef.current = [];
+      snareRef.current = [];
+      hatRef.current = [];
+      tomRef.current = [];
     };
   }, []);
 
@@ -85,13 +258,17 @@ export default function EditorPage() {
   // Playback loop starts from playheadRef (NOT from 0)
   useEffect(() => {
     if (!isPlaying) return;
-
-    let beat = playheadRef.current; // ✅ start from current playhead position
+  
+    let beat = playheadRef.current; // start from playhead
     const intervalMs = stepSeconds(project.bpm) * 1000;
-
+  
     const id = window.setInterval(() => {
-      const notesToPlay = project.notes.filter((n) => n.startBeat === beat);
-
+  
+      // ===== MELODIC NOTES =====
+      const notesToPlay = project.notes.filter(
+        (n) => n.startBeat === beat
+      );
+  
       for (const n of notesToPlay) {
         const durSec = n.durationBeats * stepSeconds(project.bpm);
         synthRef.current?.triggerAttackRelease(
@@ -101,14 +278,39 @@ export default function EditorPage() {
           n.velocity
         );
       }
+  
+      // ===== DRUMS =====
+      const drumHitsNow =
+        project.drumTracks
+          .flatMap((t) => t.hits)
+          .filter((h) => h.step === beat);
+  
+      for (const h of drumHitsNow) {
+        const v = h.velocity ?? 0.9;
+        const i = h.variant; // 0,1,2
+  
+        if (h.drum === "kick")
+          kickRef.current[i]?.triggerAttackRelease("C1", "8n", undefined, v);
+  
+        if (h.drum === "snare")
+          snareRef.current[i]?.triggerAttackRelease("16n", undefined, v);
+  
+        if (h.drum === "hat")
+          hatRef.current[i]?.triggerAttackRelease("16n", v);
 
+        if (h.drum === "tom")
+          tomRef.current[i]?.triggerAttackRelease("G2", "8n", undefined, v);
+      }
+  
+      // ===== ADVANCE PLAYHEAD =====
       beat = (beat + 1) % GRID_BEATS;
-      playheadRef.current = beat; // keep ref in sync
-      setCurrentBeat(beat);       // update UI
+      playheadRef.current = beat;
+      setCurrentBeat(beat);
+  
     }, intervalMs);
-
+  
     return () => window.clearInterval(id);
-  }, [isPlaying, project.bpm, project.notes]);
+  }, [isPlaying, project.bpm, project.notes, project.drumTracks]);
 
   return (
     <main className="h-screen flex flex-col">
@@ -165,12 +367,62 @@ export default function EditorPage() {
             size={Math.max(2, bpmText.length)}
           />
         </div>
-
-        <div>
-          <span className="font-medium">Scale:</span> {project.scale}
+        <div className="flex items-center gap-2">
+          <span className="font-medium">Scale:</span>
+          <select
+            className="w-fit rounded-md border px-2 py-0.5 text-sm bg-white dark:bg-neutral-900"
+            value={project.scaleFamily}
+            onChange={(e) =>
+              setProject((p) => ({
+                ...p,
+                scaleFamily: e.target.value as ScaleFamily,
+                updatedAt: Date.now(),
+              }))
+            }
+          >
+            <option value="MAJOR">Major</option>
+            <option value="MINOR">Minor</option>
+          </select>
         </div>
-        <div>
-          <span className="font-medium">Octaves:</span> {project.octaves}
+        <div className="flex items-center gap-2">
+          <span className="font-medium">Key:</span>
+          <select
+            value={project.keyRoot}
+            onChange={(e) => handleKeyChange(e.target.value as KeyRoot)}
+          >
+            {keys.map((k) => (
+              <option key={k} value={k}>{k}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-medium">Low:</span>
+          <input
+            type="number"
+            className="w-14 rounded-md border px-2 py-0.5 text-sm"
+            value={project.lowOctave}
+            onChange={(e) =>
+              setProject((p) => ({
+                ...p,
+                lowOctave: Number(e.target.value),
+                updatedAt: Date.now(),
+              }))
+            }
+          />
+
+          <span className="font-medium">High:</span>
+          <input
+            type="number"
+            className="w-14 rounded-md border px-2 py-0.5 text-sm"
+            value={project.highOctave}
+            onChange={(e) =>
+              setProject((p) => ({
+                ...p,
+                highOctave: Number(e.target.value),
+                updatedAt: Date.now(),
+              }))
+            }
+          />
         </div>
         <div>
           <span className="font-medium">Master Volume:</span>{" "}
@@ -210,13 +462,11 @@ export default function EditorPage() {
 
       <div className="flex-1 overflow-auto border mt-2 mb-2 rounded-lg">
         <div className="flex flex-row pt-2 pb-2 pl-1 text-sm">
-          {/* Left labels column */}
+          {/* labels column stays fixed */}
           <div className="flex flex-col mr-2 shrink-0">
-            {/* Spacer to match ruler height */}
             <div className="h-8 mb-1" />
-
             <ul className="flex flex-col py-0 px-1 rounded-md text-lg list-none">
-              {getPitches(project.scale, project.octaves).map((pitch) => (
+              {pitches.map((pitch) => (
                 <li
                   key={pitch}
                   className="flex items-center pr-2 pl-2 rounded-md border"
@@ -228,8 +478,20 @@ export default function EditorPage() {
             </ul>
           </div>
 
-          <div className="flex flex-col">
-            {/* Ruler / playhead tab row */}
+          {/* ✅ THIS is the horizontally-scrollable right side */}
+          <div
+            ref={noteScrollRef}
+            onScroll={() => syncScroll("notes")}
+            className="relative overflow-x-auto"
+            style={{ width: "100%" }}
+          >
+            {/* playhead line (notes) */}
+            <div
+              className="absolute top-0 bottom-0 w-[2px] bg-yellow-400 pointer-events-none z-20"
+              style={{ left: currentBeat * CELL_W }}
+            />
+
+            {/* ruler */}
             <div
               ref={rulerRef}
               className="relative h-8 mb-1 rounded-sm bg-neutral-700 select-none"
@@ -247,15 +509,9 @@ export default function EditorPage() {
                 setPlayhead(b);
               }}
             >
-              {/* Vertical playhead line */}
+              {/* draggable tab */}
               <div
-                className="absolute top-0 bottom-[-650] w-[2px] bg-yellow-400"
-                style={{ left: currentBeat * CELL_W }}
-              />
-
-              {/* Draggable tab */}
-              <div
-                className="absolute top-0 h-8 w-4 -translate-x-1/2 cursor-grab active:cursor-grabbing"
+                className="absolute top-0 h-8 w-4 -translate-x-1/2 cursor-grab active:cursor-grabbing z-30"
                 style={{ left: currentBeat * CELL_W }}
                 onMouseDown={(e) => {
                   e.stopPropagation();
@@ -266,15 +522,15 @@ export default function EditorPage() {
               </div>
             </div>
 
-            {/* Grid */}
+            {/* grid */}
             <div
               className="grid rounded-sm bg-neutral-600"
               style={{
                 gridTemplateColumns: `repeat(${GRID_BEATS}, ${CELL_W}px)`,
-                gridTemplateRows: `repeat(${getPitches(project.scale, project.octaves).length}, ${CELL_H}px)`,
+                gridTemplateRows: `repeat(${getPitches(project.keyRoot, project.scaleFamily, project.lowOctave, project.highOctave).length}, ${CELL_H}px)`,
               }}
             >
-              {getPitches(project.scale, project.octaves).map((pitch) =>
+              {getPitches(project.keyRoot, project.scaleFamily, project.lowOctave, project.highOctave).map((pitch) =>
                 Array.from({ length: GRID_BEATS }, (_, beat) => {
                   const filled = hasNoteAt(project.notes, pitch, beat);
                   const existing = getNoteAtStart(project.notes, pitch, beat);
@@ -325,6 +581,118 @@ export default function EditorPage() {
                   );
                 })
               )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ===== DRUM SEQUENCER (always visible) ===== */}
+      <div className="shrink-0 border-t bg-neutral-50 dark:bg-neutral-950 p-2">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-sm font-medium">Drums</div>
+
+          <button
+            className="rounded-md border px-3 py-1 text-sm"
+            onClick={() =>
+              setProject((p) => ({
+                ...p,
+                drumTracks: [
+                  ...p.drumTracks,
+                  { id: crypto.randomUUID(), drum: "kick", variant: 0, hits: [] },
+                ],
+                updatedAt: Date.now(),
+              }))
+            }
+          >
+            + Add lane
+          </button>
+        </div>
+
+        <div className="flex gap-2">
+          {/* ✅ Left “controls” column (make this narrower / icon-based later) */}
+          <div className="w-24 shrink-0" />
+
+          {/* ✅ Scrollable drum grid area (synced with notes) */}
+          <div
+            ref={drumScrollRef}
+            onScroll={() => syncScroll("drums")}
+            className="relative overflow-x-auto"
+            style={{ width: "100%" }}
+          >
+            {/* ✅ playhead line (drums) */}
+            <div
+              className="absolute top-0 bottom-0 w-[2px] bg-yellow-400 pointer-events-none z-20"
+              style={{ left: currentBeat * CELL_W }}
+            />
+
+            <div className="space-y-2" style={{ width: GRID_BEATS * CELL_W }}>
+              {project.drumTracks.map((track) => (
+                <div key={track.id} className="flex items-center gap-2">
+                  {/* lane control column (same width as spacer above) */}
+                  <div className="w-24 shrink-0 flex items-center justify-center">
+                    {/* Placeholder: icon button later */}
+                    <button className="rounded-md border px-2 py-1 text-xs">
+                      {track.drum}
+                    </button>
+                  </div>
+
+                  {/* drum row grid */}
+                  <div
+                    className="grid"
+                    style={{ gridTemplateColumns: `repeat(${GRID_BEATS}, ${CELL_W}px)` }}
+                  >
+                    {Array.from({ length: GRID_BEATS }, (_, step) => {
+                      const barIndex = Math.floor(step / STEPS_PER_BAR);
+                      const isAltBar = barIndex % 2 === 1;
+                      const hit = track.hits.find((h) => h.step === step);
+
+                      return (
+                        <button
+                          key={`${track.id}-${step}`}
+                          className={`h-6 border border-neutral-300 dark:border-neutral-700
+                            ${hit ? "bg-emerald-500 hover:bg-emerald-600" : ""}
+                            ${
+                              !hit
+                                ? isAltBar
+                                  ? "bg-neutral-200 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800"
+                                  : "bg-white dark:bg-neutral-950 hover:bg-neutral-100 dark:hover:bg-neutral-900"
+                                : ""
+                            }`}
+                          style={{ width: CELL_W }}
+                          onClick={() => {
+                            setProject((p) => ({
+                              ...p,
+                              drumTracks: p.drumTracks.map((t) => {
+                                if (t.id !== track.id) return t;
+
+                                const existing = t.hits.find((h) => h.step === step);
+                                if (existing) {
+                                  return { ...t, hits: t.hits.filter((h) => h.id !== existing.id) };
+                                }
+
+                                return {
+                                  ...t,
+                                  hits: [
+                                    ...t.hits,
+                                    {
+                                      id: crypto.randomUUID(),
+                                      drum: t.drum,
+                                      step,
+                                      velocity: 0.9,
+                                      variant: t.variant,
+                                    },
+                                  ],
+                                };
+                              }),
+                              updatedAt: Date.now(),
+                            }));
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

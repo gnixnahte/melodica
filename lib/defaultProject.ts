@@ -5,14 +5,21 @@ export function createDefaultProject(name = "Untitled"): Project {
     id: crypto.randomUUID(),
     name,
     bpm: 120,
-    scale: "C_MAJOR",
-    octaves: 2,
+    keyRoot: "C",
+    scaleFamily: "MAJOR",
+    lowOctave: 3,
+    highOctave: 5,
     notes: [],
     settings: {
       masterVolume: 0.9,
       reverbWet: 0.2,
       reverbDecay: 2.5,
     },
+    drumTracks: [
+      { id: crypto.randomUUID(), drum: "kick", variant: 0, hits: [] },
+      { id: crypto.randomUUID(), drum: "snare", variant: 0, hits: [] },
+      { id: crypto.randomUUID(), drum: "hat", variant: 0, hits: [] },
+    ],
     updatedAt: Date.now(),
   };
 }
