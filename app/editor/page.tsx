@@ -74,6 +74,7 @@ export default function EditorPage() {
   const tomRef = useRef<Tone.MembraneSynth[]>([]);
   const metroRef = useRef<Tone.MembraneSynth | null>(null);
   const metroEventRef = useRef<number | null>(null);
+  const lastPreviewTimeRef = useRef<Record<string, number>>({});
 
   // Playhead state that works with dragging + setInterval
   const playheadRef = useRef(0);
@@ -160,10 +161,14 @@ export default function EditorPage() {
     variant = 0,
     velocity = 0.9
   ) => {
-    await Tone.start(); // safe to call; resolves instantly after first time
+    const key = `${drum}:${variant}`;
+    const now = Tone.now();
 
-    const t = Tone.now() + 0.01; // <-- tiny offset prevents “same time” collisions
-  
+    const last = lastPreviewTimeRef.current[key] ?? 0;
+    const t = Math.max(now + 0.01, last + 0.001); // ✅ strictly increasing
+
+    lastPreviewTimeRef.current[key] = t;
+
     if (drum === "kick")
       kickRef.current[variant]?.triggerAttackRelease("C1", "16n", undefined, velocity);
   
