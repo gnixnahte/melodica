@@ -14,6 +14,7 @@ const CELL_H = 45;
 const DRUM_STEPS_PER_QUARTER = 4; // 16th notes
 const DRUM_GRID_BEATS = GRID_BEATS * 2; 
 const DRUM_STEPS_PER_BAR = 16;    // 16ths per bar in 4/4
+const DRUM_STEPS_PER_BEAT = 4; // 4 sixteenths = 1 quarter note
 
 const NOTE_STEPS_PER_QUARTER = 2; // 8th-note grid
 const STEPS_PER_BAR = 8; // 4/4 bar = 8 eighth notes
@@ -62,6 +63,7 @@ export default function EditorPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep16, setCurrentStep16] = useState(0);
   const [currentBeat, setCurrentBeat] = useState(0);
+  const [metronomeOn, setMetronomeOn] = useState(true);
 
   //synth and keys setup
   const keys = project.scaleFamily === "MAJOR" ? ALL_MAJOR_KEYS : ALL_MINOR_KEYS;
@@ -70,6 +72,8 @@ export default function EditorPage() {
   const snareRef = useRef<Tone.NoiseSynth[]>([]);
   const hatRef = useRef<Tone.MetalSynth[]>([]);
   const tomRef = useRef<Tone.MembraneSynth[]>([]);
+  const metroRef = useRef<Tone.MembraneSynth | null>(null);
+  const metroEventRef = useRef<number | null>(null);
 
   // Playhead state that works with dragging + setInterval
   const playheadRef = useRef(0);
@@ -145,6 +149,35 @@ export default function EditorPage() {
     setCurrentStep16(clamped);
   };
 
+  const previewNote = async (pitch: string, velocity = 0.8) => {
+    await Tone.start(); // unlock audio if needed
+    const dur = 0.12;   // seconds (short “tap”)
+    synthRef.current?.triggerAttackRelease(pitch, dur, undefined, velocity);
+  };
+
+  const previewDrum = async (
+    drum: "kick" | "snare" | "hat" | "tom",
+    variant = 0,
+    velocity = 0.9
+  ) => {
+    await Tone.start(); // safe to call; resolves instantly after first time
+
+    const t = Tone.now() + 0.01; // <-- tiny offset prevents “same time” collisions
+  
+    if (drum === "kick")
+      kickRef.current[variant]?.triggerAttackRelease("C1", "16n", undefined, velocity);
+  
+    if (drum === "snare")
+      snareRef.current[variant]?.triggerAttackRelease("16n", undefined, velocity);
+  
+    if (drum === "hat")
+      hatRef.current[variant]?.triggerAttackRelease("16n", velocity);
+  
+    if (drum === "tom")
+      tomRef.current[variant]?.triggerAttackRelease("G2", "16n", undefined, velocity);
+  };
+
+
   function step16FromClientX(clientX: number, el: HTMLElement) {
     const rect = el.getBoundingClientRect();
     const x = clientX - rect.left;
@@ -152,14 +185,19 @@ export default function EditorPage() {
     return Math.floor(x / (CELL_W / 2));
   }
 
-  
-
   // Create synth once
   useEffect(() => {
     // ===== MELODY SYNTH (poly) =====
     synthRef.current = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: "triangle" },
-      envelope: { attack: 0.01, decay: 0.15, sustain: 0.4, release: 0.25 },
+      envelope: { attack: 0.01, decay: 0.01, sustain: 0.4, release: 0.25 },
+    }).toDestination();
+
+    // create METRONOME //
+    metroRef.current = new Tone.MembraneSynth({
+      pitchDecay: 0.008,
+      octaves: 2,
+      envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.01 },
     }).toDestination();
   
     // ===== DRUMS: 3 variants each =====
@@ -267,6 +305,8 @@ export default function EditorPage() {
     return () => {
       synthRef.current?.dispose();
       synthRef.current = null;
+      metroRef.current?.dispose();
+      metroRef.current = null;
   
       [...kickRef.current, ...snareRef.current, ...hatRef.current, ...tomRef.current].forEach(
         (inst) => inst.dispose()
@@ -329,14 +369,38 @@ export default function EditorPage() {
   
       step16 = (step16 + 1) % (GRID_BEATS * 2);
     }, "16n");
-  
+      // make sure Transport BPM follows project BPM
+
+    if (metronomeOn){
+      let beatCount = 0;
+
+      metroEventRef.current = Tone.Transport.scheduleRepeat((time) => {
+        const isDownbeat = beatCount % 4 === 0; // 4 beats per bar
+        
+        metroRef.current?.triggerAttackRelease(
+          isDownbeat ? "C6" : "A5",
+          "32n",
+          time,
+          0.9
+        );
+        
+        beatCount++;
+      }, "4n");
+    }
+
     Tone.Transport.start();
   
     return () => {
       Tone.Transport.clear(id);
+      
+      if (metroEventRef.current !== null) {
+        Tone.Transport.clear(metroEventRef.current);
+        metroEventRef.current = null;
+      }
+
       Tone.Transport.stop();
     };
-  }, [isPlaying, project.bpm, project.notes, project.drumTracks]);
+  }, [isPlaying, metronomeOn, project.bpm, project.notes, project.drumTracks]);
 
   return (
     <main className="h-screen flex flex-col">
@@ -511,6 +575,13 @@ export default function EditorPage() {
         {isPlaying ? "Stop" : "Play"}
       </button>
 
+      <button
+        className="rounded-md border px-3 py-1 text-sm"
+        onClick={() => setMetronomeOn(v => !v)}
+      >
+        Metronome: {metronomeOn ? "On" : "Off"}
+      </button>
+
       <div className="flex-1 overflow-auto border mt-2 mb-2 rounded-lg">
         <div className="flex flex-row pt-2 pb-2 pl-1 text-sm">
           {/* labels column stays fixed */}
@@ -611,6 +682,8 @@ export default function EditorPage() {
                             updatedAt: Date.now(),
                           }));
                         } else {
+                          previewNote(pitch, 0.8);
+                        
                           setProject((p) => ({
                             ...p,
                             notes: [
@@ -690,21 +763,30 @@ export default function EditorPage() {
                 <div key={track.id} className="grid" style={{ gridTemplateColumns: `repeat(${DRUM_GRID_BEATS}, ${CELL_W / 2}px)` }}>
                   {Array.from({ length: DRUM_GRID_BEATS }, (_, step) => {
                     const hit = track.hits.find((h) => h.step === step);
-                    const barIndex = Math.floor(step / DRUM_STEPS_PER_BAR);
+                    const barIndex = Math.floor(step / DRUM_STEPS_PER_BAR); // 0,1,2...
                     const isAltBar = barIndex % 2 === 1;
+                    const isQuarterStart = step % DRUM_STEPS_PER_BEAT === 0; // every 4 sixteenths
 
                     return (
                       <button
                         key={`${track.id}-${step}`}
-                        className={`h-6 border border-neutral-300 rounded-sm dark:border-neutral-700 transition-colors
+                        className={`h-6 transition-colors
+                          border-t border-b border-neutral-300 dark:border-neutral-700
+                          ${hit ? "bg-emerald-500 hover:bg-emerald-600" : ""}
                           ${
-                            hit
-                              ? "bg-emerald-500 hover:bg-emerald-600"
-                              : isAltBar
+                            !hit
+                              ? isAltBar
                                 ? "bg-neutral-200 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800"
                                 : "bg-white dark:bg-neutral-950 hover:bg-neutral-100 dark:hover:bg-neutral-900"
+                              : ""
                           }`}
-                        style={{ width: CELL_W / 2 }}
+                        style={{
+                          width: CELL_W / 2,
+                          // quarter note divider (stronger line every 4 steps)
+                          borderLeft: isQuarterStart
+                            ? "2px solid rgba(120,120,120,0.6)"
+                            : "1px solid rgba(120,120,120,0.25)",
+                        }}
                         onClick={() => {
                           setProject((p) => ({
                             ...p,
@@ -715,7 +797,10 @@ export default function EditorPage() {
                               if (existing) {
                                 return { ...t, hits: t.hits.filter((h) => h.id !== existing.id) };
                               }
-
+                              
+                              // 🔊 preview sound when placing hit
+                              previewDrum(t.drum, t.variant, 0.9);
+                              
                               return {
                                 ...t,
                                 hits: [
