@@ -48,11 +48,20 @@ export default function EditorPage() {
     createDefaultProject("Melodica Project")
   );
   const [bpmText, setBpmText] = useState(String(project.bpm));
+  const [lowOctaveText, setLowOctaveText] = useState(String(project.lowOctave));
+  const [highOctaveText, setHighOctaveText] = useState(String(project.highOctave));
+  
+  useEffect(() => {
+    setLowOctaveText(String(project.lowOctave));
+  }, [project.lowOctave]);
+  
+  useEffect(() => {
+    setHighOctaveText(String(project.highOctave));
+  }, [project.highOctave]);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep16, setCurrentStep16] = useState(0);
   const [currentBeat, setCurrentBeat] = useState(0);
-  const playheadStep16Ref = useRef(0);
 
   //synth and keys setup
   const keys = project.scaleFamily === "MAJOR" ? ALL_MAJOR_KEYS : ALL_MINOR_KEYS;
@@ -76,6 +85,7 @@ export default function EditorPage() {
   const DRUM_CELL_W = CELL_W / 2; // 16th cell width
 
   const [scrollLeft, setScrollLeft] = useState(0);
+  const playheadStep16Ref = useRef(0);
 
   const playheadPxNotes = currentBeat * CELL_W;
   const playheadPxDrums = currentBeat * CELL_W/2 * 2; // because drums have 2x columns
@@ -129,18 +139,20 @@ export default function EditorPage() {
     });
   };
 
-  const setPlayhead = (beat8: number) => {
-    const clamped8 = Math.max(0, Math.min(GRID_BEATS - 1, beat8));
-    const step16 = clamped8 * 2;
-    playheadStep16Ref.current = step16;
-    setCurrentStep16(step16);
+  const setPlayheadStep16 = (step16: number) => {
+    const clamped = Math.max(0, Math.min(DRUM_GRID_BEATS - 1, step16));
+    playheadStep16Ref.current = clamped;
+    setCurrentStep16(clamped);
   };
 
-  const beatFromClientX = (clientX: number, el: HTMLElement) => {
+  function step16FromClientX(clientX: number, el: HTMLElement) {
     const rect = el.getBoundingClientRect();
     const x = clientX - rect.left;
-    return Math.floor(x / CELL_W);
-  };
+    // 16th notes = half the width of an 8th-note cell
+    return Math.floor(x / (CELL_W / 2));
+  }
+
+  
 
   // Create synth once
   useEffect(() => {
@@ -278,44 +290,52 @@ export default function EditorPage() {
   useEffect(() => {
     if (!isPlaying) return;
   
-    let step16 = playheadStep16Ref.current; // ✅ 16th start
-    const intervalMs = clockStepSeconds(project.bpm) * 1000;
+    Tone.Transport.bpm.value = project.bpm;
   
-    const id = window.setInterval(() => {
-      // ===== DRUMS (16th grid) =====
+    let step16 = playheadStep16Ref.current;
+
+    const id = Tone.Transport.scheduleRepeat((time) => {
+      // play melodic notes only on EVEN 16ths (i.e. every 8th)
+      if (step16 % 2 === 0) {
+        const beat8 = step16 / 2;
+        const notesToPlay = project.notes.filter(n => n.startBeat === beat8);
+  
+        for (const n of notesToPlay) {
+          const dur = (n.durationBeats / 2) + "n"; // quick hack; better: compute seconds
+          synthRef.current?.triggerAttackRelease(n.pitch, dur, time, n.velocity);
+        }
+      }
+  
+      // drums on every 16th
       const drumHitsNow = project.drumTracks
-        .flatMap((t) => t.hits)
-        .filter((h) => h.step === step16);
+        .flatMap(t => t.hits)
+        .filter(h => h.step === step16);
   
       for (const h of drumHitsNow) {
         const v = h.velocity ?? 0.9;
         const i = h.variant ?? 0;
   
-        if (h.drum === "kick") kickRef.current[i]?.triggerAttackRelease("C1", "16n", undefined, v);
-        if (h.drum === "snare") snareRef.current[i]?.triggerAttackRelease("16n", undefined, v);
-        if (h.drum === "hat") hatRef.current[i]?.triggerAttackRelease("16n", v);
-        if (h.drum === "tom") tomRef.current[i]?.triggerAttackRelease("G2", "16n", undefined, v);
+        if (h.drum === "kick") kickRef.current[i]?.triggerAttackRelease("C1", "16n", time, v);
+        if (h.drum === "snare") snareRef.current[i]?.triggerAttackRelease("16n", time, v);
+        if (h.drum === "hat") hatRef.current[i]?.triggerAttackRelease("16n", time, v);
+        if (h.drum === "tom") tomRef.current[i]?.triggerAttackRelease("G2", "16n", time, v);
       }
   
-      // ===== MELODIC NOTES (8th grid) =====
-      // Only trigger melodic checks on EVEN 16th steps (0,2,4...) -> aligns with 8ths
-      if (step16 % 2 === 0) {
-        const beat8 = step16 / 2;
+      // UI update (do NOT do this directly in audio callback)
+      Tone.Draw.schedule(() => {
+        playheadStep16Ref.current = step16;
+        setCurrentStep16(step16);
+      }, time);
   
-        const notesToPlay = project.notes.filter((n) => n.startBeat === beat8);
-        for (const n of notesToPlay) {
-          const durSec = n.durationBeats * (60 / project.bpm) / NOTE_STEPS_PER_QUARTER;
-          synthRef.current?.triggerAttackRelease(n.pitch, durSec, undefined, n.velocity);
-        }
-      }
+      step16 = (step16 + 1) % (GRID_BEATS * 2);
+    }, "16n");
   
-      // ===== ADVANCE PLAYHEAD =====
-      step16 = (step16 + 1) % DRUM_GRID_BEATS;
-      playheadStep16Ref.current = step16;
-      setCurrentStep16(step16);
-    }, intervalMs);
+    Tone.Transport.start();
   
-    return () => window.clearInterval(id);
+    return () => {
+      Tone.Transport.clear(id);
+      Tone.Transport.stop();
+    };
   }, [isPlaying, project.bpm, project.notes, project.drumTracks]);
 
   return (
@@ -404,31 +424,63 @@ export default function EditorPage() {
         <div className="flex items-center gap-2">
           <span className="font-medium">Low:</span>
           <input
-            type="number"
+            type="text"
             className="w-14 rounded-md border px-2 py-0.5 text-sm"
-            value={project.lowOctave}
-            onChange={(e) =>
+            value={lowOctaveText}
+            onChange={(e) => setLowOctaveText(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+
+              const val = parseInt(e.currentTarget.value.trim(), 10);
+              if (Number.isNaN(val)) {
+                setLowOctaveText(String(project.lowOctave));
+                return;
+              }
+
+              const clamped = Math.max(0, Math.min(8, val));
+
               setProject((p) => ({
                 ...p,
-                lowOctave: Number(e.target.value),
+                lowOctave: clamped,
+                highOctave: Math.max(p.highOctave, clamped), // keep range valid
                 updatedAt: Date.now(),
-              }))
-            }
+              }));
+
+              setLowOctaveText(String(clamped));
+              e.currentTarget.blur();
+            }}
+            onBlur={() => setLowOctaveText(String(project.lowOctave))}
           />
 
           <span className="font-medium">High:</span>
           <input
-            type="number"
-            className="w-14 rounded-md border px-2 py-0.5 text-sm"
-            value={project.highOctave}
-            onChange={(e) =>
-              setProject((p) => ({
-                ...p,
-                highOctave: Number(e.target.value),
-                updatedAt: Date.now(),
-              }))
-            }
-          />
+              type="text"
+              className="w-14 rounded-md border px-2 py-0.5 text-sm"
+              value={highOctaveText}
+              onChange={(e) => setHighOctaveText(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+
+                const val = parseInt(e.currentTarget.value.trim(), 10);
+                if (Number.isNaN(val)) {
+                  setHighOctaveText(String(project.highOctave));
+                  return;
+                }
+
+                const clamped = Math.max(0, Math.min(8, val));
+
+                setProject((p) => ({
+                  ...p,
+                  highOctave: clamped,
+                  lowOctave: Math.min(p.lowOctave, clamped), // keep range valid
+                  updatedAt: Date.now(),
+                }));
+
+                setHighOctaveText(String(clamped));
+                e.currentTarget.blur();
+              }}
+              onBlur={() => setHighOctaveText(String(project.highOctave))}
+            />
         </div>
         <div>
           <span className="font-medium">Master Volume:</span>{" "}
@@ -447,31 +499,24 @@ export default function EditorPage() {
         </div>
       </div>
 
-      <div className="mt-3 flex gap-2">
-        <button
-          className="rounded-md bg-black px-4 py-2 text-sm text-white"
-          onClick={async () => {
-            await Tone.start();
-            // ✅ do NOT reset to 0; start from wherever the playhead currently is
-            setIsPlaying(true);
-          }}
-        >
-          Play
-        </button>
-        <button
-          className="rounded-md border px-4 py-2 text-sm"
-          onClick={() => setIsPlaying(false)}
-        >
-          Stop
-        </button>
-      </div>
+      <button
+        className={`rounded-md px-4 py-2 text-sm text-white ${
+          isPlaying ? "bg-red-600" : "bg-black"
+        }`}
+        onClick={async () => {
+          await Tone.start(); // unlock audio on first user gesture
+          setIsPlaying((prev) => !prev);
+        }}
+      >
+        {isPlaying ? "Stop" : "Play"}
+      </button>
 
       <div className="flex-1 overflow-auto border mt-2 mb-2 rounded-lg">
         <div className="flex flex-row pt-2 pb-2 pl-1 text-sm">
           {/* labels column stays fixed */}
           <div className="flex flex-col mr-2 shrink-0">
             <div className="h-8 mb-1" />
-            <ul className="flex flex-col py-0 px-1 rounded-md text-lg list-none">
+            <ul className="w-14 items-center flex flex-col py-0 px-1 rounded-md text-lg list-none">
               {pitches.map((pitch) => (
                 <li
                   key={pitch}
@@ -494,7 +539,7 @@ export default function EditorPage() {
             {/* playhead line (notes) */}
             <div
               className="absolute top-0 bottom-0 w-[2px] bg-yellow-400 pointer-events-none z-20"
-              style={{ left: (currentStep16 / 2) * CELL_W }}            />
+              style={{ left: (currentStep16 / 2) * CELL_W }}/>
 
             {/* ruler */}
             <div
@@ -503,15 +548,15 @@ export default function EditorPage() {
               style={{ width: GRID_BEATS * CELL_W }}
               onMouseDown={(e) => {
                 if (!rulerRef.current) return;
-                const b = beatFromClientX(e.clientX, rulerRef.current);
-                setPlayhead(b);
+                const b = step16FromClientX(e.clientX, rulerRef.current);
+                setPlayheadStep16(b);
                 isScrubbingRef.current = true;
               }}
               onMouseMove={(e) => {
                 if (!isScrubbingRef.current) return;
                 if (!rulerRef.current) return;
-                const b = beatFromClientX(e.clientX, rulerRef.current);
-                setPlayhead(b);
+                const b = step16FromClientX(e.clientX, rulerRef.current);
+                setPlayheadStep16(b);
               }}
             >
               {/* draggable tab */}
@@ -645,12 +690,13 @@ export default function EditorPage() {
                 <div key={track.id} className="grid" style={{ gridTemplateColumns: `repeat(${DRUM_GRID_BEATS}, ${CELL_W / 2}px)` }}>
                   {Array.from({ length: DRUM_GRID_BEATS }, (_, step) => {
                     const hit = track.hits.find((h) => h.step === step);
-                    const isAltBar = step % 2 === 1;
+                    const barIndex = Math.floor(step / DRUM_STEPS_PER_BAR);
+                    const isAltBar = barIndex % 2 === 1;
 
                     return (
                       <button
                         key={`${track.id}-${step}`}
-                        className={`h-6 border border-neutral-300 dark:border-neutral-700 transition-colors
+                        className={`h-6 border border-neutral-300 rounded-sm dark:border-neutral-700 transition-colors
                           ${
                             hit
                               ? "bg-emerald-500 hover:bg-emerald-600"
