@@ -8,12 +8,14 @@ import { getPitches, ALL_MAJOR_KEYS, ALL_MINOR_KEYS } from "@/lib/pitches";
 import type { KeyRoot, ScaleFamily } from "@/lib/pitches";
 import type { Project, NoteEvent, DrumTrack } from "@/types/project";
 
-const GRID_BEATS = 160; // each column = 1 eighth note
+
+const NOTE_STEPS_PER_BAR = 8;
+const DRUM_STEPS_PER_BAR = 16;    // 16ths per bar in 4/4
+
+
 const CELL_W = 25;
 const CELL_H = 45;
 const DRUM_STEPS_PER_QUARTER = 4; // 16th notes
-const DRUM_GRID_BEATS = GRID_BEATS * 2; 
-const DRUM_STEPS_PER_BAR = 16;    // 16ths per bar in 4/4
 const DRUM_STEPS_PER_BEAT = 4; // 4 sixteenths = 1 quarter note
 
 const NOTE_STEPS_PER_QUARTER = 2; // 8th-note grid
@@ -88,6 +90,9 @@ export default function EditorPage() {
   const syncingScrollRef = useRef<"notes" | "drums" | null>(null);
 
   const DRUM_CELL_W = CELL_W / 2; // 16th cell width
+
+  const GRID_BEATS = project.bars * NOTE_STEPS_PER_BAR; // each column = 1 eighth note
+  const DRUM_GRID_BEATS = project.bars * DRUM_STEPS_PER_BAR;
 
   const [scrollLeft, setScrollLeft] = useState(0);
   const playheadStep16Ref = useRef(0);

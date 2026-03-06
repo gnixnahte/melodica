@@ -9,6 +9,7 @@ export function createDefaultProject(name = "Untitled"): Project {
     scaleFamily: "MAJOR",
     lowOctave: 3,
     highOctave: 5,
+    bars: 8,
     notes: [],
     settings: {
       masterVolume: 0.9,
