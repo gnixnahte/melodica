@@ -36,6 +36,7 @@ export type Project = {
   id: string;
   name: string;
   bpm: number;
+  bars: number;
 
   drumTracks: DrumTrack[];
   keyRoot: KeyRoot;          // e.g. "C", "Eb", "F#", "Bb"
