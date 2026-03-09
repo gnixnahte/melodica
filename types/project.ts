@@ -24,7 +24,16 @@ export type NoteEvent = {
   startBeat: number;
   durationBeats: number;
   velocity?: number;
+  instrument?: MelodyInstrument;
 };
+
+export type MelodyInstrument =
+  | "Triangle"
+  | "Saw"
+  | "Square"
+  | "FM Bell"
+  | "AM Pad"
+  | "Duo Lead";
 
 export type ProjectSettings = {
   masterVolume: number;

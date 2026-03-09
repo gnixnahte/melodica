@@ -20,6 +20,7 @@ export function createDefaultProject(name = "Untitled"): Project {
       { id: crypto.randomUUID(), drum: "kick", variant: 0, hits: [] },
       { id: crypto.randomUUID(), drum: "snare", variant: 0, hits: [] },
       { id: crypto.randomUUID(), drum: "hat", variant: 0, hits: [] },
+      { id: crypto.randomUUID(), drum: "tom", variant: 0, hits: [] },
     ],
     updatedAt: Date.now(),
   };

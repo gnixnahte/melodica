@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createDefaultProject } from "@/lib/defaultProject";
 import { getPitches, ALL_MAJOR_KEYS, ALL_MINOR_KEYS } from "@/lib/pitches";
 import type { KeyRoot, ScaleFamily } from "@/lib/pitches";
-import type { Project, NoteEvent, DrumTrack } from "@/types/project";
+import type { Project, NoteEvent, DrumTrack, MelodyInstrument } from "@/types/project";
 
 
 const NOTE_STEPS_PER_BAR = 8;
@@ -22,6 +22,15 @@ const DRUM_STEPS_PER_BEAT = 4; // 4 sixteenths = 1 quarter note
 
 const NOTE_STEPS_PER_QUARTER = 2; // 8th-note grid
 const STEPS_PER_BAR = 8; // 4/4 bar = 8 eighth notes
+const MELODY_INSTRUMENTS = ["Triangle", "Saw", "Square", "FM Bell", "AM Pad", "Duo Lead"] as const;
+const NOTE_INSTRUMENT_COLORS: Record<MelodyInstrument, string> = {
+  Triangle: "bg-emerald-500 hover:bg-emerald-600",
+  Saw: "bg-cyan-500 hover:bg-cyan-600",
+  Square: "bg-sky-500 hover:bg-sky-600",
+  "FM Bell": "bg-amber-500 hover:bg-amber-600",
+  "AM Pad": "bg-fuchsia-500 hover:bg-fuchsia-600",
+  "Duo Lead": "bg-rose-500 hover:bg-rose-600",
+};
 
 function clockStepSeconds(bpm: number) {
   return (60 / bpm) / DRUM_STEPS_PER_QUARTER; // ✅ 16th-note clock
@@ -47,7 +56,56 @@ function hasNoteAt(notes: NoteEvent[], pitch: string, beat: number): boolean {
   return notes.some((n) => noteOccupies(n, pitch, beat));
 }
 
+function normalizeInstrument(instrument?: MelodyInstrument): MelodyInstrument {
+  if (!instrument) return "Triangle";
+  return MELODY_INSTRUMENTS.includes(instrument) ? instrument : "Triangle";
+}
+
+function createMelodySynthPreset(instrument: MelodyInstrument) {
+  switch (instrument) {
+    case "Saw":
+      return new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: "sawtooth" },
+        envelope: { attack: 0.01, decay: 0.08, sustain: 0.45, release: 0.3 },
+      }).toDestination();
+    case "Square":
+      return new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: "square" },
+        envelope: { attack: 0.005, decay: 0.05, sustain: 0.35, release: 0.2 },
+      }).toDestination();
+    case "FM Bell":
+      return new Tone.PolySynth(Tone.FMSynth, {
+        harmonicity: 3,
+        modulationIndex: 8,
+        envelope: { attack: 0.005, decay: 0.25, sustain: 0.1, release: 0.7 },
+      }).toDestination();
+    case "AM Pad":
+      return new Tone.PolySynth(Tone.AMSynth, {
+        harmonicity: 1.5,
+        envelope: { attack: 0.08, decay: 0.2, sustain: 0.55, release: 0.9 },
+      }).toDestination();
+    case "Duo Lead":
+      return new Tone.PolySynth(Tone.DuoSynth, {
+        vibratoAmount: 0.3,
+        vibratoRate: 5,
+        harmonicity: 1.5,
+      }).toDestination();
+    case "Triangle":
+    default:
+      return new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: "triangle" },
+        envelope: { attack: 0.01, decay: 0.01, sustain: 0.4, release: 0.25 },
+      }).toDestination();
+  }
+}
+type MelodyPolySynth = ReturnType<typeof createMelodySynthPreset>;
+
 export default function EditorPage() {
+  type NoteMenuState = {
+    noteId: string;
+    x: number;
+    y: number;
+  };
   
   const [project, setProject] = useState<Project>(() =>
     createDefaultProject("Melodica Project")
@@ -72,10 +130,12 @@ export default function EditorPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep16, setCurrentStep16] = useState(0);
   const [metronomeOn, setMetronomeOn] = useState(true);
+  const [defaultInstrument, setDefaultInstrument] = useState<MelodyInstrument>("Triangle");
+  const [noteMenu, setNoteMenu] = useState<NoteMenuState | null>(null);
 
   //synth and keys setup
   const keys = project.scaleFamily === "MAJOR" ? ALL_MAJOR_KEYS : ALL_MINOR_KEYS;
-  const synthRef = useRef<Tone.PolySynth | null>(null);
+  const synthBankRef = useRef<Map<MelodyInstrument, MelodyPolySynth>>(new Map());
   const kickRef = useRef<Tone.MembraneSynth[]>([]);
   const snareRef = useRef<Tone.NoiseSynth[]>([]);
   const hatRef = useRef<Tone.MetalSynth[]>([]);
@@ -83,6 +143,8 @@ export default function EditorPage() {
   const metroRef = useRef<Tone.MembraneSynth | null>(null);
   const metroEventRef = useRef<number | null>(null);
   const lastPreviewTimeRef = useRef<Record<string, number>>({});
+  const noteDeleteTimeoutRef = useRef<number | null>(null);
+  const noteMenuRef = useRef<HTMLDivElement | null>(null);
 
   const isScrubbingRef = useRef(false);
   const rulerRef = useRef<HTMLDivElement | null>(null);
@@ -225,10 +287,38 @@ export default function EditorPage() {
     setCurrentStep16(clamped);
   };
 
-  const previewNote = async (pitch: string, velocity = 0.8) => {
+  const getMelodySynth = (instrument: MelodyInstrument) => {
+    const normalized = normalizeInstrument(instrument);
+    const existing = synthBankRef.current.get(normalized);
+    if (existing) return existing;
+
+    const created = createMelodySynthPreset(normalized);
+    synthBankRef.current.set(normalized, created);
+    return created;
+  };
+
+  const clearPendingNoteDelete = () => {
+    if (noteDeleteTimeoutRef.current === null) return;
+    window.clearTimeout(noteDeleteTimeoutRef.current);
+    noteDeleteTimeoutRef.current = null;
+  };
+
+  const updateNoteById = (noteId: string, patch: Partial<NoteEvent>) => {
+    setProject((p) => ({
+      ...p,
+      notes: p.notes.map((n) => (n.id === noteId ? { ...n, ...patch } : n)),
+      updatedAt: Date.now(),
+    }));
+  };
+
+  const previewNote = async (
+    pitch: string,
+    velocity = 0.8,
+    instrument: MelodyInstrument = defaultInstrument
+  ) => {
     await Tone.start(); // unlock audio if needed
     const dur = 0.12;   // seconds (short “tap”)
-    synthRef.current?.triggerAttackRelease(pitch, dur, undefined, velocity);
+    getMelodySynth(instrument).triggerAttackRelease(pitch, dur, undefined, velocity);
   };
 
   const previewDrum = async (
@@ -265,14 +355,16 @@ export default function EditorPage() {
     return Math.floor(x / (CELL_W / 2));
   }
 
-  // Create synth once
   useEffect(() => {
-    // ===== MELODY SYNTH (poly) =====
-    synthRef.current = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: "triangle" },
-      envelope: { attack: 0.01, decay: 0.01, sustain: 0.4, release: 0.25 },
-    }).toDestination();
+    const synthBank = synthBankRef.current;
+    return () => {
+      synthBank.forEach((synth) => synth.dispose());
+      synthBank.clear();
+    };
+  }, []);
 
+  // Create drums + metronome once
+  useEffect(() => {
     // create METRONOME //
     metroRef.current = new Tone.MembraneSynth({
       pitchDecay: 0.008,
@@ -383,8 +475,6 @@ export default function EditorPage() {
   
     // ===== CLEANUP =====
     return () => {
-      synthRef.current?.dispose();
-      synthRef.current = null;
       metroRef.current?.dispose();
       metroRef.current = null;
   
@@ -403,8 +493,36 @@ export default function EditorPage() {
   useEffect(() => {
     const onUp = () => (isScrubbingRef.current = false);
     window.addEventListener("mouseup", onUp);
-    return () => window.removeEventListener("mouseup", onUp);
+    return () => {
+      clearPendingNoteDelete();
+      window.removeEventListener("mouseup", onUp);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!noteMenu) return;
+
+    const onMouseDown = (event: MouseEvent) => {
+      if (!noteMenuRef.current) return;
+      if (noteMenuRef.current.contains(event.target as Node)) return;
+      setNoteMenu(null);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNoteMenu(null);
+    };
+
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [noteMenu]);
+
+  const selectedNote = noteMenu
+    ? project.notes.find((n) => n.id === noteMenu.noteId) ?? null
+    : null;
 
 	  // Playback loop starts from current playhead position (NOT from 0)
   useEffect(() => {
@@ -419,10 +537,11 @@ export default function EditorPage() {
       if (step16 % 2 === 0) {
         const beat8 = step16 / 2;
         const notesToPlay = project.notes.filter(n => n.startBeat === beat8);
-  
+
         for (const n of notesToPlay) {
+          const instrument = normalizeInstrument(n.instrument);
           const dur = (n.durationBeats / 2) + "n"; // quick hack; better: compute seconds
-          synthRef.current?.triggerAttackRelease(n.pitch, dur, time, n.velocity);
+          getMelodySynth(instrument).triggerAttackRelease(n.pitch, dur, time, n.velocity);
         }
       }
   
@@ -632,6 +751,19 @@ export default function EditorPage() {
           >
             {keys.map((k) => (
               <option key={k} value={k}>{k}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-medium">Default Instrument:</span>
+          <select
+            value={defaultInstrument}
+            onChange={(e) => setDefaultInstrument(e.target.value as MelodyInstrument)}
+          >
+            {MELODY_INSTRUMENTS.map((instrument) => (
+              <option key={instrument} value={instrument}>
+                {instrument}
+              </option>
             ))}
           </select>
         </div>
@@ -877,6 +1009,10 @@ export default function EditorPage() {
                       const beat = noteWindow.start + localIndex;
                   const filled = hasNoteAt(project.notes, pitch, beat);
                   const existing = getNoteAtStart(project.notes, pitch, beat);
+                  const existingInstrument = normalizeInstrument(existing?.instrument);
+                  const filledClass = existing
+                    ? NOTE_INSTRUMENT_COLORS[existingInstrument]
+                    : "bg-emerald-500 hover:bg-emerald-600";
 
                   const barIndex = Math.floor(beat / STEPS_PER_BAR);
                   const isAltBar = barIndex % 2 === 1;
@@ -890,21 +1026,25 @@ export default function EditorPage() {
                         border border-neutral-400 dark:border-neutral-600
                         ${
                           filled
-                            ? "bg-emerald-500 hover:bg-emerald-600"
+                            ? filledClass
                             : isAltBar
                               ? "bg-neutral-300 dark:bg-neutral-800 hover:bg-neutral-400 dark:hover:bg-neutral-700"
                               : "bg-neutral-200 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800"
                         }`}
                       style={{ width: CELL_W, height: CELL_H }}
                       onClick={() => {
+                        clearPendingNoteDelete();
                         if (existing) {
-                          setProject((p) => ({
-                            ...p,
-                            notes: p.notes.filter((n) => n.id !== existing.id),
-                            updatedAt: Date.now(),
-                          }));
+                          noteDeleteTimeoutRef.current = window.setTimeout(() => {
+                            setProject((p) => ({
+                              ...p,
+                              notes: p.notes.filter((n) => n.id !== existing.id),
+                              updatedAt: Date.now(),
+                            }));
+                            noteDeleteTimeoutRef.current = null;
+                          }, 220);
                         } else {
-                          previewNote(pitch, 0.8);
+                          previewNote(pitch, 0.8, defaultInstrument);
                         
                           setProject((p) => ({
                             ...p,
@@ -916,11 +1056,21 @@ export default function EditorPage() {
                                 startBeat: beat,
                                 durationBeats: 1,
                                 velocity: 0.8,
+                                instrument: defaultInstrument,
                               },
                             ],
                             updatedAt: Date.now(),
                           }));
                         }
+                      }}
+                      onDoubleClick={(e) => {
+                        if (!existing) return;
+                        clearPendingNoteDelete();
+                        const menuWidth = 240;
+                        const menuHeight = 220;
+                        const x = Math.min(e.clientX + 12, window.innerWidth - menuWidth - 12);
+                        const y = Math.min(e.clientY + 12, window.innerHeight - menuHeight - 12);
+                        setNoteMenu({ noteId: existing.id, x, y });
                       }}
                     />
                   );
@@ -1071,6 +1221,95 @@ export default function EditorPage() {
           </div>
         </div>
       </div>
+
+      {noteMenu && selectedNote && (
+        <div
+          ref={noteMenuRef}
+          className="fixed z-50 w-60 rounded-md border bg-white p-3 shadow-xl dark:bg-neutral-900"
+          style={{ left: noteMenu.x, top: noteMenu.y }}
+        >
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            Note Options
+          </div>
+          <div className="mb-2 text-xs text-neutral-500">
+            {selectedNote.pitch} at beat {selectedNote.startBeat}
+          </div>
+          <label className="mb-2 block text-xs font-medium">
+            Instrument
+            <select
+              className="mt-1 w-full rounded border px-2 py-1 text-sm"
+              value={normalizeInstrument(selectedNote.instrument)}
+              onChange={(e) => {
+                const instrument = e.target.value as MelodyInstrument;
+                updateNoteById(selectedNote.id, { instrument });
+                previewNote(selectedNote.pitch, selectedNote.velocity ?? 0.8, instrument);
+              }}
+            >
+              {MELODY_INSTRUMENTS.map((instrument) => (
+                <option key={instrument} value={instrument}>
+                  {instrument}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="mb-2 block text-xs font-medium">
+            Duration
+            <select
+              className="mt-1 w-full rounded border px-2 py-1 text-sm"
+              value={selectedNote.durationBeats}
+              onChange={(e) => {
+                const durationBeats = Number(e.target.value);
+                updateNoteById(selectedNote.id, { durationBeats });
+              }}
+            >
+              <option value={1}>1 step</option>
+              <option value={2}>2 steps</option>
+              <option value={4}>4 steps</option>
+              <option value={8}>8 steps</option>
+            </select>
+          </label>
+          <label className="mb-3 block text-xs font-medium">
+            Velocity
+            <select
+              className="mt-1 w-full rounded border px-2 py-1 text-sm"
+              value={selectedNote.velocity ?? 0.8}
+              onChange={(e) => {
+                const velocity = Number(e.target.value);
+                updateNoteById(selectedNote.id, { velocity });
+                previewNote(selectedNote.pitch, velocity, normalizeInstrument(selectedNote.instrument));
+              }}
+            >
+              <option value={0.4}>0.4</option>
+              <option value={0.6}>0.6</option>
+              <option value={0.8}>0.8</option>
+              <option value={1}>1.0</option>
+            </select>
+          </label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="rounded border px-2 py-1 text-xs"
+              onClick={() => setNoteMenu(null)}
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              className="rounded bg-red-600 px-2 py-1 text-xs text-white"
+              onClick={() => {
+                setProject((p) => ({
+                  ...p,
+                  notes: p.notes.filter((n) => n.id !== selectedNote.id),
+                  updatedAt: Date.now(),
+                }));
+                setNoteMenu(null);
+              }}
+            >
+              Delete Note
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
