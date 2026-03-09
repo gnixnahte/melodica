@@ -258,9 +258,9 @@ export default function EditorPage() {
   };
 
 
-  function step16FromClientX(clientX: number, el: HTMLElement) {
+  function step16FromClientX(clientX: number, el: HTMLElement, scrollOffsetPx = 0) {
     const rect = el.getBoundingClientRect();
-    const x = clientX - rect.left;
+    const x = clientX - rect.left + scrollOffsetPx;
     // 16th notes = half the width of an 8th-note cell
     return Math.floor(x / (CELL_W / 2));
   }
@@ -788,22 +788,9 @@ export default function EditorPage() {
             </ul>
           </div>
 
-          {/* ✅ THIS is the horizontally-scrollable right side */}
-          <div
-            ref={noteScrollRef}
-            onScroll={() => syncScroll("notes")}
-            className="relative overflow-x-auto"
-            style={{ width: "100%" }}
-          >
-            {/* playhead line (notes) */}
-            <div
-              className="absolute top-0 bottom-0 w-[2px] bg-yellow-400 pointer-events-none z-20"
-              style={{ left: notePlayheadPx }}/>
-
-            {/* ruler */}
-            <div
-              className="sticky top-0 z-30 mb-1 bg-neutral-50/95 dark:bg-neutral-950/95 backdrop-blur-sm relative"
-            >
+          <div className="w-full min-w-0">
+            {/* ruler: sticky in vertical scroll, synced to horizontal scrollLeft */}
+            <div className="sticky top-0 z-30 mb-1 bg-neutral-50/95 dark:bg-neutral-950/95 backdrop-blur-sm relative">
               {noteViewportWidth > 0 && (
                 <div
                   className="absolute top-1 z-40 -translate-x-1/2 rounded bg-yellow-300 px-1.5 py-0.5 text-[10px] font-semibold text-black pointer-events-none"
@@ -812,54 +799,71 @@ export default function EditorPage() {
                   {playheadIndicatorLabel}
                 </div>
               )}
-              <div
-                ref={rulerRef}
-                className="relative h-8 rounded-sm bg-neutral-700 select-none"
-                style={{ width: GRID_BEATS * CELL_W }}
-                onMouseDown={(e) => {
-                  if (!rulerRef.current) return;
-                  const b = step16FromClientX(e.clientX, rulerRef.current);
-                  setPlayheadStep16(b);
-                  isScrubbingRef.current = true;
-                }}
-                onMouseMove={(e) => {
-                  if (!isScrubbingRef.current) return;
-                  if (!rulerRef.current) return;
-                  const b = step16FromClientX(e.clientX, rulerRef.current);
-                  setPlayheadStep16(b);
-                }}
-              >
-                {Array.from({ length: project.bars }, (_, barIndex) => {
-                  const left = barIndex * BAR_WIDTH_PX;
-                  return (
-                    <div key={`bar-mark-${barIndex}`}>
-                      <div
-                        className="absolute top-0 bottom-0 w-px bg-neutral-400/70 pointer-events-none"
-                        style={{ left }}
-                      />
-                      <div
-                        className="absolute top-1 text-[10px] text-neutral-200 pointer-events-none"
-                        style={{ left: left + 4 }}
-                      >
-                        {barIndex + 1}
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="relative h-8 overflow-hidden rounded-sm bg-neutral-700">
                 <div
-                  className="absolute top-0 bottom-0 w-[2px] bg-yellow-400 pointer-events-none z-30"
-                  style={{ left: notePlayheadPx }}
-                />
+                  ref={rulerRef}
+                  className="relative h-8 select-none"
+                  style={{
+                    width: GRID_BEATS * CELL_W,
+                    transform: `translateX(${-scrollLeft}px)`,
+                  }}
+                  onMouseDown={(e) => {
+                    if (!rulerRef.current) return;
+                    const b = step16FromClientX(e.clientX, rulerRef.current, scrollLeft);
+                    setPlayheadStep16(b);
+                    isScrubbingRef.current = true;
+                  }}
+                  onMouseMove={(e) => {
+                    if (!isScrubbingRef.current) return;
+                    if (!rulerRef.current) return;
+                    const b = step16FromClientX(e.clientX, rulerRef.current, scrollLeft);
+                    setPlayheadStep16(b);
+                  }}
+                >
+                  {Array.from({ length: project.bars }, (_, barIndex) => {
+                    const left = barIndex * BAR_WIDTH_PX;
+                    return (
+                      <div key={`bar-mark-${barIndex}`}>
+                        <div
+                          className="absolute top-0 bottom-0 w-px bg-neutral-400/70 pointer-events-none"
+                          style={{ left }}
+                        />
+                        <div
+                          className="absolute top-1 text-[10px] text-neutral-200 pointer-events-none"
+                          style={{ left: left + 4 }}
+                        >
+                          {barIndex + 1}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div
+                    className="absolute top-0 bottom-0 w-[2px] bg-yellow-400 pointer-events-none z-30"
+                    style={{ left: notePlayheadPx }}
+                  />
+                </div>
               </div>
             </div>
 
-            {/* grid */}
+            {/* ✅ THIS is the horizontally-scrollable right side */}
             <div
-              className="rounded-sm bg-neutral-600"
-              style={{
-                width: GRID_BEATS * CELL_W,
-              }}
+              ref={noteScrollRef}
+              onScroll={() => syncScroll("notes")}
+              className="relative overflow-x-auto"
+              style={{ width: "100%" }}
             >
+              {/* playhead line (notes) */}
+              <div
+                className="absolute top-0 bottom-0 w-[2px] bg-yellow-400 pointer-events-none z-20"
+                style={{ left: notePlayheadPx }}/>
+
+              {/* grid */}
+              <div
+                className="rounded-sm bg-neutral-600"
+                style={{
+                  width: GRID_BEATS * CELL_W,
+                }}
+              >
               {pitches.map((pitch) => (
                 <div key={pitch} className="flex" style={{ height: CELL_H }}>
                   <div
@@ -929,6 +933,7 @@ export default function EditorPage() {
                   />
                 </div>
               ))}
+              </div>
             </div>
           </div>
         </div>
