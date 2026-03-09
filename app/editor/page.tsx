@@ -71,7 +71,6 @@ export default function EditorPage() {
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep16, setCurrentStep16] = useState(0);
-  const [currentBeat, setCurrentBeat] = useState(0);
   const [metronomeOn, setMetronomeOn] = useState(true);
 
   //synth and keys setup
@@ -85,8 +84,6 @@ export default function EditorPage() {
   const metroEventRef = useRef<number | null>(null);
   const lastPreviewTimeRef = useRef<Record<string, number>>({});
 
-  // Playhead state that works with dragging + setInterval
-  const playheadRef = useRef(0);
   const isScrubbingRef = useRef(false);
   const rulerRef = useRef<HTMLDivElement | null>(null);
   const pitches = getPitches(project.keyRoot, project.scaleFamily, project.lowOctave, project.highOctave);
@@ -106,8 +103,23 @@ export default function EditorPage() {
   const [drumViewportWidth, setDrumViewportWidth] = useState(0);
   const playheadStep16Ref = useRef(0);
 
-  const playheadPxNotes = currentBeat * CELL_W;
-  const playheadPxDrums = currentBeat * CELL_W/2 * 2; // because drums have 2x columns
+  const notePlayheadPx = (currentStep16 / 2) * CELL_W;
+  const playheadLeftOfView = notePlayheadPx < scrollLeft;
+  const playheadRightOfView = notePlayheadPx > scrollLeft + noteViewportWidth;
+  const playheadBar = Math.floor((currentStep16 / 2) / NOTE_STEPS_PER_BAR) + 1;
+  const BAR_WIDTH_PX = NOTE_STEPS_PER_BAR * CELL_W;
+  const indicatorPadding = 44;
+  const playheadInViewPx = notePlayheadPx - scrollLeft;
+  const indicatorMaxX = Math.max(indicatorPadding, noteViewportWidth - indicatorPadding);
+  const playheadIndicatorX = Math.max(
+    indicatorPadding,
+    Math.min(indicatorMaxX, playheadInViewPx)
+  );
+  const playheadIndicatorLabel = playheadLeftOfView
+    ? `\u25C0 Bar ${playheadBar}`
+    : playheadRightOfView
+      ? `Bar ${playheadBar} \u25B6`
+      : `Bar ${playheadBar}`;
 
   const syncScroll = (from: "notes" | "drums") => {
     if (!noteScrollRef.current || !drumScrollRef.current) return;
@@ -394,7 +406,7 @@ export default function EditorPage() {
     return () => window.removeEventListener("mouseup", onUp);
   }, []);
 
-  // Playback loop starts from playheadRef (NOT from 0)
+	  // Playback loop starts from current playhead position (NOT from 0)
   useEffect(() => {
     if (!isPlaying) return;
   
@@ -786,36 +798,58 @@ export default function EditorPage() {
             {/* playhead line (notes) */}
             <div
               className="absolute top-0 bottom-0 w-[2px] bg-yellow-400 pointer-events-none z-20"
-              style={{ left: (currentStep16 / 2) * CELL_W }}/>
+              style={{ left: notePlayheadPx }}/>
 
             {/* ruler */}
             <div
-              ref={rulerRef}
-              className="relative h-8 mb-1 rounded-sm bg-neutral-700 select-none"
-              style={{ width: GRID_BEATS * CELL_W }}
-              onMouseDown={(e) => {
-                if (!rulerRef.current) return;
-                const b = step16FromClientX(e.clientX, rulerRef.current);
-                setPlayheadStep16(b);
-                isScrubbingRef.current = true;
-              }}
-              onMouseMove={(e) => {
-                if (!isScrubbingRef.current) return;
-                if (!rulerRef.current) return;
-                const b = step16FromClientX(e.clientX, rulerRef.current);
-                setPlayheadStep16(b);
-              }}
+              className="sticky top-0 z-30 mb-1 bg-neutral-50/95 dark:bg-neutral-950/95 backdrop-blur-sm relative"
             >
-              {/* draggable tab */}
+              {noteViewportWidth > 0 && (
+                <div
+                  className="absolute top-1 z-40 -translate-x-1/2 rounded bg-yellow-300 px-1.5 py-0.5 text-[10px] font-semibold text-black pointer-events-none"
+                  style={{ left: playheadIndicatorX }}
+                >
+                  {playheadIndicatorLabel}
+                </div>
+              )}
               <div
-                className="absolute top-0 h-8 w-4 -translate-x-1/2 cursor-grab active:cursor-grabbing z-30"
-                style={{ left: currentBeat * CELL_W }}
+                ref={rulerRef}
+                className="relative h-8 rounded-sm bg-neutral-700 select-none"
+                style={{ width: GRID_BEATS * CELL_W }}
                 onMouseDown={(e) => {
-                  e.stopPropagation();
+                  if (!rulerRef.current) return;
+                  const b = step16FromClientX(e.clientX, rulerRef.current);
+                  setPlayheadStep16(b);
                   isScrubbingRef.current = true;
                 }}
+                onMouseMove={(e) => {
+                  if (!isScrubbingRef.current) return;
+                  if (!rulerRef.current) return;
+                  const b = step16FromClientX(e.clientX, rulerRef.current);
+                  setPlayheadStep16(b);
+                }}
               >
-                <div className="mx-auto mt-1 h-6 w-3 rounded-sm bg-yellow-400 shadow" />
+                {Array.from({ length: project.bars }, (_, barIndex) => {
+                  const left = barIndex * BAR_WIDTH_PX;
+                  return (
+                    <div key={`bar-mark-${barIndex}`}>
+                      <div
+                        className="absolute top-0 bottom-0 w-px bg-neutral-400/70 pointer-events-none"
+                        style={{ left }}
+                      />
+                      <div
+                        className="absolute top-1 text-[10px] text-neutral-200 pointer-events-none"
+                        style={{ left: left + 4 }}
+                      >
+                        {barIndex + 1}
+                      </div>
+                    </div>
+                  );
+                })}
+                <div
+                  className="absolute top-0 bottom-0 w-[2px] bg-yellow-400 pointer-events-none z-30"
+                  style={{ left: notePlayheadPx }}
+                />
               </div>
             </div>
 
