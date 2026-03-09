@@ -148,6 +148,7 @@ export default function EditorPage() {
   const noteMenuRef = useRef<HTMLDivElement | null>(null);
   const noteResizeRef = useRef<{ noteId: string; pitch: string; startBeat: number } | null>(null);
   const suppressDeleteClickRef = useRef(false);
+  const justSpawnedNoteIdRef = useRef<string | null>(null);
 
   const isScrubbingRef = useRef(false);
   const rulerRef = useRef<HTMLDivElement | null>(null);
@@ -316,6 +317,20 @@ export default function EditorPage() {
       notes: p.notes.map((n) => (n.id === noteId ? { ...n, ...patch } : n)),
       updatedAt: Date.now(),
     }));
+  };
+
+  const updateDraggedNoteDurationFromClientX = (clientX: number) => {
+    const resize = noteResizeRef.current;
+    if (!resize) return;
+    if (!noteScrollRef.current) return;
+
+    const rect = noteScrollRef.current.getBoundingClientRect();
+    const xInGrid = clientX - rect.left + scrollLeft;
+    const hoverBeat = Math.floor(xInGrid / CELL_W);
+    const clampedBeat = Math.max(0, Math.min(GRID_BEATS - 1, hoverBeat));
+    const endExclusive = Math.max(resize.startBeat + 1, clampedBeat + 1);
+    const nextDuration = endExclusive - resize.startBeat;
+    updateNoteById(resize.noteId, { durationBeats: nextDuration });
   };
 
   const previewNote = async (
@@ -991,6 +1006,10 @@ export default function EditorPage() {
             <div
               ref={noteScrollRef}
               onScroll={() => syncScroll("notes")}
+              onMouseMove={(e) => {
+                if (!noteResizeRef.current) return;
+                updateDraggedNoteDurationFromClientX(e.clientX);
+              }}
               className="relative overflow-x-auto"
               style={{ width: "100%" }}
             >
@@ -1074,6 +1093,7 @@ export default function EditorPage() {
                             pitch,
                             startBeat: noteOccupyingCell.startBeat,
                           };
+                          updateDraggedNoteDurationFromClientX(e.clientX);
                           return;
                         }
 
@@ -1094,18 +1114,13 @@ export default function EditorPage() {
                           ],
                           updatedAt: Date.now(),
                         }));
+                        justSpawnedNoteIdRef.current = newNoteId;
                         noteResizeRef.current = {
                           noteId: newNoteId,
                           pitch,
                           startBeat: beat,
                         };
-                      }}
-                      onMouseEnter={() => {
-                        if (!noteResizeRef.current) return;
-                        if (noteResizeRef.current.pitch !== pitch) return;
-
-                        const nextDuration = Math.max(1, beat - noteResizeRef.current.startBeat + 1);
-                        updateNoteById(noteResizeRef.current.noteId, { durationBeats: nextDuration });
+                        updateDraggedNoteDurationFromClientX(e.clientX);
                       }}
                       onClick={() => {
                         clearPendingNoteDelete();
@@ -1115,6 +1130,10 @@ export default function EditorPage() {
                         }
 
                         if (!noteOccupyingCell) return;
+                        if (justSpawnedNoteIdRef.current === noteOccupyingCell.id) {
+                          justSpawnedNoteIdRef.current = null;
+                          return;
+                        }
                         noteDeleteTimeoutRef.current = window.setTimeout(() => {
                           setProject((p) => ({
                             ...p,
