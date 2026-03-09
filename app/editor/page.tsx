@@ -22,6 +22,7 @@ const DRUM_STEPS_PER_BEAT = 4; // 4 sixteenths = 1 quarter note
 
 const NOTE_STEPS_PER_QUARTER = 2; // 8th-note grid
 const STEPS_PER_BAR = 8; // 4/4 bar = 8 eighth notes
+const NOTE_RESIZE_HANDLE_PX = 6;
 const MELODY_INSTRUMENTS = ["Triangle", "Saw", "Square", "FM Bell", "AM Pad", "Duo Lead"] as const;
 const NOTE_INSTRUMENT_COLORS: Record<MelodyInstrument, string> = {
   Triangle: "bg-emerald-500 hover:bg-emerald-600",
@@ -44,16 +45,16 @@ function noteOccupies(note: NoteEvent, pitch: string, beat: number): boolean {
   );
 }
 
-function getNoteAtStart(
+function hasNoteAt(notes: NoteEvent[], pitch: string, beat: number): boolean {
+  return notes.some((n) => noteOccupies(n, pitch, beat));
+}
+
+function getNoteOccupying(
   notes: NoteEvent[],
   pitch: string,
   beat: number
 ): NoteEvent | undefined {
-  return notes.find((n) => n.pitch === pitch && n.startBeat === beat);
-}
-
-function hasNoteAt(notes: NoteEvent[], pitch: string, beat: number): boolean {
-  return notes.some((n) => noteOccupies(n, pitch, beat));
+  return notes.find((n) => noteOccupies(n, pitch, beat));
 }
 
 function normalizeInstrument(instrument?: MelodyInstrument): MelodyInstrument {
@@ -145,6 +146,8 @@ export default function EditorPage() {
   const lastPreviewTimeRef = useRef<Record<string, number>>({});
   const noteDeleteTimeoutRef = useRef<number | null>(null);
   const noteMenuRef = useRef<HTMLDivElement | null>(null);
+  const noteResizeRef = useRef<{ noteId: string; pitch: string; startBeat: number } | null>(null);
+  const suppressDeleteClickRef = useRef(false);
 
   const isScrubbingRef = useRef(false);
   const rulerRef = useRef<HTMLDivElement | null>(null);
@@ -301,6 +304,10 @@ export default function EditorPage() {
     if (noteDeleteTimeoutRef.current === null) return;
     window.clearTimeout(noteDeleteTimeoutRef.current);
     noteDeleteTimeoutRef.current = null;
+  };
+
+  const stopNoteResize = () => {
+    noteResizeRef.current = null;
   };
 
   const updateNoteById = (noteId: string, patch: Partial<NoteEvent>) => {
@@ -491,7 +498,10 @@ export default function EditorPage() {
 
   // Mouse up anywhere ends scrubbing
   useEffect(() => {
-    const onUp = () => (isScrubbingRef.current = false);
+    const onUp = () => {
+      isScrubbingRef.current = false;
+      stopNoteResize();
+    };
     window.addEventListener("mouseup", onUp);
     return () => {
       clearPendingNoteDelete();
@@ -1006,11 +1016,17 @@ export default function EditorPage() {
                   {Array.from(
                     { length: noteWindow.end - noteWindow.start },
                     (_, localIndex) => {
-                      const beat = noteWindow.start + localIndex;
+                  const beat = noteWindow.start + localIndex;
                   const filled = hasNoteAt(project.notes, pitch, beat);
-                  const existing = getNoteAtStart(project.notes, pitch, beat);
-                  const existingInstrument = normalizeInstrument(existing?.instrument);
-                  const filledClass = existing
+                  const noteOccupyingCell = getNoteOccupying(project.notes, pitch, beat);
+                  const isContinuation = Boolean(noteOccupyingCell);
+                  const isNoteStart = Boolean(noteOccupyingCell && noteOccupyingCell.startBeat === beat);
+                  const isNoteEnd = Boolean(
+                    noteOccupyingCell &&
+                    beat === noteOccupyingCell.startBeat + noteOccupyingCell.durationBeats - 1
+                  );
+                  const existingInstrument = normalizeInstrument(noteOccupyingCell?.instrument);
+                  const filledClass = noteOccupyingCell
                     ? NOTE_INSTRUMENT_COLORS[existingInstrument]
                     : "bg-emerald-500 hover:bg-emerald-600";
 
@@ -1024,53 +1040,98 @@ export default function EditorPage() {
                       aria-label={`${pitch} beat ${beat} ${filled ? "on" : "off"}`}
                       className={`rounded-sm p-0 cursor-pointer transition-colors
                         border border-neutral-400 dark:border-neutral-600
+                        ${filled && isNoteEnd ? "cursor-e-resize" : "cursor-pointer"}
                         ${
                           filled
                             ? filledClass
                             : isAltBar
                               ? "bg-neutral-300 dark:bg-neutral-800 hover:bg-neutral-400 dark:hover:bg-neutral-700"
                               : "bg-neutral-200 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800"
-                        }`}
-                      style={{ width: CELL_W, height: CELL_H }}
+                        }
+                        ${filled ? "rounded-none" : ""}`}
+                      style={{
+                        width: CELL_W,
+                        height: CELL_H,
+                        borderTopLeftRadius: isNoteStart ? 4 : 0,
+                        borderBottomLeftRadius: isNoteStart ? 4 : 0,
+                        borderTopRightRadius: isNoteEnd ? 4 : 0,
+                        borderBottomRightRadius: isNoteEnd ? 4 : 0,
+                        borderLeftWidth: isContinuation && !isNoteStart ? 0 : 1,
+                        borderRightWidth: isContinuation && !isNoteEnd ? 0 : 1,
+                      }}
+                      onMouseDown={(e) => {
+                        clearPendingNoteDelete();
+                        setNoteMenu(null);
+
+                        // Resize only from the right-edge handle of the note end cell.
+                        if (noteOccupyingCell) {
+                          const isRightEdgeGrab = e.nativeEvent.offsetX >= CELL_W - NOTE_RESIZE_HANDLE_PX;
+                          if (!isNoteEnd || !isRightEdgeGrab) return;
+
+                          suppressDeleteClickRef.current = true;
+                          noteResizeRef.current = {
+                            noteId: noteOccupyingCell.id,
+                            pitch,
+                            startBeat: noteOccupyingCell.startBeat,
+                          };
+                          return;
+                        }
+
+                        const newNoteId = crypto.randomUUID();
+                        previewNote(pitch, 0.8, defaultInstrument);
+                        setProject((p) => ({
+                          ...p,
+                          notes: [
+                            ...p.notes,
+                            {
+                              id: newNoteId,
+                              pitch,
+                              startBeat: beat,
+                              durationBeats: 1,
+                              velocity: 0.8,
+                              instrument: defaultInstrument,
+                            },
+                          ],
+                          updatedAt: Date.now(),
+                        }));
+                        noteResizeRef.current = {
+                          noteId: newNoteId,
+                          pitch,
+                          startBeat: beat,
+                        };
+                      }}
+                      onMouseEnter={() => {
+                        if (!noteResizeRef.current) return;
+                        if (noteResizeRef.current.pitch !== pitch) return;
+
+                        const nextDuration = Math.max(1, beat - noteResizeRef.current.startBeat + 1);
+                        updateNoteById(noteResizeRef.current.noteId, { durationBeats: nextDuration });
+                      }}
                       onClick={() => {
                         clearPendingNoteDelete();
-                        if (existing) {
-                          noteDeleteTimeoutRef.current = window.setTimeout(() => {
-                            setProject((p) => ({
-                              ...p,
-                              notes: p.notes.filter((n) => n.id !== existing.id),
-                              updatedAt: Date.now(),
-                            }));
-                            noteDeleteTimeoutRef.current = null;
-                          }, 220);
-                        } else {
-                          previewNote(pitch, 0.8, defaultInstrument);
-                        
+                        if (suppressDeleteClickRef.current) {
+                          suppressDeleteClickRef.current = false;
+                          return;
+                        }
+
+                        if (!noteOccupyingCell) return;
+                        noteDeleteTimeoutRef.current = window.setTimeout(() => {
                           setProject((p) => ({
                             ...p,
-                            notes: [
-                              ...p.notes,
-                              {
-                                id: crypto.randomUUID(),
-                                pitch,
-                                startBeat: beat,
-                                durationBeats: 1,
-                                velocity: 0.8,
-                                instrument: defaultInstrument,
-                              },
-                            ],
+                            notes: p.notes.filter((n) => n.id !== noteOccupyingCell.id),
                             updatedAt: Date.now(),
                           }));
-                        }
+                          noteDeleteTimeoutRef.current = null;
+                        }, 220);
                       }}
                       onDoubleClick={(e) => {
-                        if (!existing) return;
+                        if (!noteOccupyingCell) return;
                         clearPendingNoteDelete();
                         const menuWidth = 240;
                         const menuHeight = 220;
                         const x = Math.min(e.clientX + 12, window.innerWidth - menuWidth - 12);
                         const y = Math.min(e.clientY + 12, window.innerHeight - menuHeight - 12);
-                        setNoteMenu({ noteId: existing.id, x, y });
+                        setNoteMenu({ noteId: noteOccupyingCell.id, x, y });
                       }}
                     />
                   );
