@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import * as Tone from "tone";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createDefaultProject } from "@/lib/defaultProject";
 import { getPitches, ALL_MAJOR_KEYS, ALL_MINOR_KEYS } from "@/lib/pitches";
 import type { KeyRoot, ScaleFamily } from "@/lib/pitches";
@@ -11,6 +11,8 @@ import type { Project, NoteEvent, DrumTrack } from "@/types/project";
 
 const NOTE_STEPS_PER_BAR = 8;
 const DRUM_STEPS_PER_BAR = 16;    // 16ths per bar in 4/4
+const NOTE_RENDER_BUFFER_COLS = 32;
+const DRUM_RENDER_BUFFER_STEPS = 64;
 
 
 const CELL_W = 25;
@@ -51,6 +53,7 @@ export default function EditorPage() {
     createDefaultProject("Melodica Project")
   );
   const [bpmText, setBpmText] = useState(String(project.bpm));
+  const [barsText, setBarsText] = useState(String(project.bars));
   const [lowOctaveText, setLowOctaveText] = useState(String(project.lowOctave));
   const [highOctaveText, setHighOctaveText] = useState(String(project.highOctave));
   
@@ -61,6 +64,10 @@ export default function EditorPage() {
   useEffect(() => {
     setHighOctaveText(String(project.highOctave));
   }, [project.highOctave]);
+
+  useEffect(() => {
+    setBarsText(String(project.bars));
+  }, [project.bars]);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep16, setCurrentStep16] = useState(0);
@@ -95,6 +102,8 @@ export default function EditorPage() {
   const DRUM_GRID_BEATS = project.bars * DRUM_STEPS_PER_BAR;
 
   const [scrollLeft, setScrollLeft] = useState(0);
+  const [noteViewportWidth, setNoteViewportWidth] = useState(0);
+  const [drumViewportWidth, setDrumViewportWidth] = useState(0);
   const playheadStep16Ref = useRef(0);
 
   const playheadPxNotes = currentBeat * CELL_W;
@@ -123,6 +132,55 @@ export default function EditorPage() {
       syncingScrollRef.current = null;
     });
   };
+
+  useEffect(() => {
+    const noteEl = noteScrollRef.current;
+    const drumEl = drumScrollRef.current;
+    if (!noteEl || !drumEl) return;
+
+    const updateWidths = () => {
+      setNoteViewportWidth(noteEl.clientWidth);
+      setDrumViewportWidth(drumEl.clientWidth);
+    };
+
+    updateWidths();
+
+    const observer = new ResizeObserver(updateWidths);
+    observer.observe(noteEl);
+    observer.observe(drumEl);
+
+    return () => observer.disconnect();
+  }, []);
+
+  const noteWindow = useMemo(() => {
+    const viewportCols = Math.ceil(noteViewportWidth / CELL_W);
+    const start = Math.max(0, Math.floor(scrollLeft / CELL_W) - NOTE_RENDER_BUFFER_COLS);
+    const end = Math.min(
+      GRID_BEATS,
+      Math.ceil((scrollLeft + noteViewportWidth) / CELL_W) + NOTE_RENDER_BUFFER_COLS
+    );
+    const safeEnd = Math.max(end, start + Math.max(1, viewportCols));
+
+    return {
+      start,
+      end: Math.min(GRID_BEATS, safeEnd),
+    };
+  }, [GRID_BEATS, noteViewportWidth, scrollLeft]);
+
+  const drumWindow = useMemo(() => {
+    const viewportSteps = Math.ceil(drumViewportWidth / DRUM_CELL_W);
+    const start = Math.max(0, Math.floor(scrollLeft / DRUM_CELL_W) - DRUM_RENDER_BUFFER_STEPS);
+    const end = Math.min(
+      DRUM_GRID_BEATS,
+      Math.ceil((scrollLeft + drumViewportWidth) / DRUM_CELL_W) + DRUM_RENDER_BUFFER_STEPS
+    );
+    const safeEnd = Math.max(end, start + Math.max(1, viewportSteps));
+
+    return {
+      start,
+      end: Math.min(DRUM_GRID_BEATS, safeEnd),
+    };
+  }, [DRUM_CELL_W, DRUM_GRID_BEATS, drumViewportWidth, scrollLeft]);
 
   // Convert "C#" + 4 => "C#4"
   const keyToMidi = (key: KeyRoot, octave = 4) =>
@@ -467,6 +525,76 @@ export default function EditorPage() {
             size={Math.max(2, bpmText.length)}
           />
         </div>
+
+        <div>
+          <span className="font-medium">Bars:</span>
+          <input
+            className="w-fit"
+            type="text"
+            value={barsText}
+            onChange={(e) => setBarsText(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+
+              const newVal = e.currentTarget.value.trim();
+              const parsed = parseInt(newVal, 10);
+
+              if (newVal === "" || Number.isNaN(parsed)) {
+                setBarsText(String(project.bars));
+                return;
+              }
+
+              // allow between 1 and 256 bars
+              const clamped = Math.max(1, Math.min(256, parsed));
+              const maxBeat8 = clamped * NOTE_STEPS_PER_BAR;
+              const maxStep16 = clamped * DRUM_STEPS_PER_BAR;
+
+              if (clamped < project.bars) {
+                const notesToDelete = project.notes.filter((n) => n.startBeat >= maxBeat8).length;
+                const hitsToDelete = project.drumTracks
+                  .flatMap((t) => t.hits)
+                  .filter((h) => h.step >= maxStep16).length;
+
+                const totalToDelete = notesToDelete + hitsToDelete;
+                if (totalToDelete > 0) {
+                  const confirmed = window.confirm(
+                    `Shrink project to ${clamped} bars?\n\n` +
+                      `This will delete ${notesToDelete} note(s) and ${hitsToDelete} drum hit(s) beyond bar ${clamped}.`
+                  );
+
+                  if (!confirmed) {
+                    setBarsText(String(project.bars));
+                    return;
+                  }
+                }
+              }
+
+              setProject((p) => {
+                // if we're shrinking, drop notes/hits that fall off the end
+                const maxBeat8 = clamped * NOTE_STEPS_PER_BAR; // eighth-note beats
+                const maxStep16 = clamped * DRUM_STEPS_PER_BAR;
+
+                const trimmedNotes = p.notes.filter(n => n.startBeat < maxBeat8);
+                const trimmedTracks = p.drumTracks.map(t => ({
+                  ...t,
+                  hits: t.hits.filter(h => h.step < maxStep16),
+                }));
+
+                return {
+                  ...p,
+                  bars: clamped,
+                  notes: trimmedNotes,
+                  drumTracks: trimmedTracks,
+                  updatedAt: Date.now(),
+                };
+              });
+              setBarsText(String(clamped));
+              e.currentTarget.blur();
+            }}
+            onBlur={() => setBarsText(String(project.bars))}
+            size={Math.max(1, barsText.length)}
+          />
+        </div>
         <div className="flex items-center gap-2">
           <span className="font-medium">Scale:</span>
           <select
@@ -512,11 +640,30 @@ export default function EditorPage() {
               }
 
               const clamped = Math.max(0, Math.min(8, val));
+              const nextLow = clamped;
+              const nextHigh = Math.max(project.highOctave, clamped);
+              const allowedPitches = new Set(
+                getPitches(project.keyRoot, project.scaleFamily, nextLow, nextHigh)
+              );
+              const notesToDelete = project.notes.filter((n) => !allowedPitches.has(n.pitch)).length;
+
+              if (notesToDelete > 0) {
+                const confirmed = window.confirm(
+                  `Change octave range to ${nextLow}-${nextHigh}?\n\n` +
+                    `This will delete ${notesToDelete} note(s) outside the new range.`
+                );
+
+                if (!confirmed) {
+                  setLowOctaveText(String(project.lowOctave));
+                  return;
+                }
+              }
 
               setProject((p) => ({
                 ...p,
-                lowOctave: clamped,
-                highOctave: Math.max(p.highOctave, clamped), // keep range valid
+                lowOctave: nextLow,
+                highOctave: nextHigh, // keep range valid
+                notes: p.notes.filter((n) => allowedPitches.has(n.pitch)),
                 updatedAt: Date.now(),
               }));
 
@@ -542,11 +689,30 @@ export default function EditorPage() {
                 }
 
                 const clamped = Math.max(0, Math.min(8, val));
+                const nextHigh = clamped;
+                const nextLow = Math.min(project.lowOctave, clamped);
+                const allowedPitches = new Set(
+                  getPitches(project.keyRoot, project.scaleFamily, nextLow, nextHigh)
+                );
+                const notesToDelete = project.notes.filter((n) => !allowedPitches.has(n.pitch)).length;
+
+                if (notesToDelete > 0) {
+                  const confirmed = window.confirm(
+                    `Change octave range to ${nextLow}-${nextHigh}?\n\n` +
+                      `This will delete ${notesToDelete} note(s) outside the new range.`
+                  );
+
+                  if (!confirmed) {
+                    setHighOctaveText(String(project.highOctave));
+                    return;
+                  }
+                }
 
                 setProject((p) => ({
                   ...p,
-                  highOctave: clamped,
-                  lowOctave: Math.min(p.lowOctave, clamped), // keep range valid
+                  highOctave: nextHigh,
+                  lowOctave: nextLow, // keep range valid
+                  notes: p.notes.filter((n) => allowedPitches.has(n.pitch)),
                   updatedAt: Date.now(),
                 }));
 
@@ -655,14 +821,22 @@ export default function EditorPage() {
 
             {/* grid */}
             <div
-              className="grid rounded-sm bg-neutral-600"
+              className="rounded-sm bg-neutral-600"
               style={{
-                gridTemplateColumns: `repeat(${GRID_BEATS}, ${CELL_W}px)`,
-                gridTemplateRows: `repeat(${getPitches(project.keyRoot, project.scaleFamily, project.lowOctave, project.highOctave).length}, ${CELL_H}px)`,
+                width: GRID_BEATS * CELL_W,
               }}
             >
-              {getPitches(project.keyRoot, project.scaleFamily, project.lowOctave, project.highOctave).map((pitch) =>
-                Array.from({ length: GRID_BEATS }, (_, beat) => {
+              {pitches.map((pitch) => (
+                <div key={pitch} className="flex" style={{ height: CELL_H }}>
+                  <div
+                    aria-hidden="true"
+                    className="shrink-0"
+                    style={{ width: noteWindow.start * CELL_W }}
+                  />
+                  {Array.from(
+                    { length: noteWindow.end - noteWindow.start },
+                    (_, localIndex) => {
+                      const beat = noteWindow.start + localIndex;
                   const filled = hasNoteAt(project.notes, pitch, beat);
                   const existing = getNoteAtStart(project.notes, pitch, beat);
 
@@ -712,8 +886,15 @@ export default function EditorPage() {
                       }}
                     />
                   );
-                })
-              )}
+                    }
+                  )}
+                  <div
+                    aria-hidden="true"
+                    className="shrink-0"
+                    style={{ width: (GRID_BEATS - noteWindow.end) * CELL_W }}
+                  />
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -770,8 +951,16 @@ export default function EditorPage() {
 
             <div className="space-y-2" style={{ width: GRID_BEATS * CELL_W }}>
               {project.drumTracks.map((track) => (
-                <div key={track.id} className="grid" style={{ gridTemplateColumns: `repeat(${DRUM_GRID_BEATS}, ${CELL_W / 2}px)` }}>
-                  {Array.from({ length: DRUM_GRID_BEATS }, (_, step) => {
+                <div key={track.id} className="flex">
+                  <div
+                    aria-hidden="true"
+                    className="shrink-0"
+                    style={{ width: drumWindow.start * DRUM_CELL_W }}
+                  />
+                  {Array.from(
+                    { length: drumWindow.end - drumWindow.start },
+                    (_, localIndex) => {
+                    const step = drumWindow.start + localIndex;
                     const hit = track.hits.find((h) => h.step === step);
                     const barIndex = Math.floor(step / DRUM_STEPS_PER_BAR); // 0,1,2...
                     const isAltBar = barIndex % 2 === 1;
@@ -791,7 +980,7 @@ export default function EditorPage() {
                               : ""
                           }`}
                         style={{
-                          width: CELL_W / 2,
+                          width: DRUM_CELL_W,
                           // quarter note divider (stronger line every 4 steps)
                           borderLeft: isQuarterStart
                             ? "2px solid rgba(120,120,120,0.6)"
@@ -830,47 +1019,19 @@ export default function EditorPage() {
                         }}
                       />
                     );
-                  })}
+                    }
+                  )}
+                  <div
+                    aria-hidden="true"
+                    className="shrink-0"
+                    style={{ width: (DRUM_GRID_BEATS - drumWindow.end) * DRUM_CELL_W }}
+                  />
                 </div>
               ))}
             </div>
           </div>
         </div>
       </div>
-
-
-      <button
-        className="mt-2 rounded-md bg-black px-4 py-2 text-sm text-white"
-        onClick={() =>
-          setProject((p) => ({
-            ...p,
-            bpm: p.bpm + 1,
-            updatedAt: Date.now(),
-          }))
-        }
-      >
-        BPM +1
-      </button>
-
-      <button
-        className="mt-2 rounded-md bg-black px-4 py-2 text-sm text-white"
-        onClick={() => {
-          const newNote: NoteEvent = {
-            id: crypto.randomUUID(),
-            pitch: "C4",
-            startBeat: 0,
-            durationBeats: 1,
-            velocity: 0.5,
-          };
-          setProject((p) => ({
-            ...p,
-            notes: [...p.notes, newNote],
-            updatedAt: Date.now(),
-          }));
-        }}
-      >
-        Add Note
-      </button>
     </main>
   );
 }
