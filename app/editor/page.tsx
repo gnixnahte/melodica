@@ -63,27 +63,29 @@ function normalizeInstrument(instrument?: MelodyInstrument): MelodyInstrument {
 }
 
 function createMelodySynthPreset(instrument: MelodyInstrument) {
+  // Short release so notes stop when the playhead passes the end of the note (no reverb tail).
+  const shortRelease = 0.04;
   switch (instrument) {
     case "Saw":
       return new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "sawtooth" },
-        envelope: { attack: 0.01, decay: 0.08, sustain: 0.45, release: 0.3 },
+        envelope: { attack: 0.01, decay: 0.08, sustain: 0.45, release: shortRelease },
       }).toDestination();
     case "Square":
       return new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "square" },
-        envelope: { attack: 0.005, decay: 0.05, sustain: 0.35, release: 0.2 },
+        envelope: { attack: 0.005, decay: 0.05, sustain: 0.35, release: shortRelease },
       }).toDestination();
     case "FM Bell":
       return new Tone.PolySynth(Tone.FMSynth, {
         harmonicity: 3,
         modulationIndex: 8,
-        envelope: { attack: 0.005, decay: 0.25, sustain: 0.1, release: 0.7 },
+        envelope: { attack: 0.005, decay: 0.25, sustain: 0.1, release: shortRelease },
       }).toDestination();
     case "AM Pad":
       return new Tone.PolySynth(Tone.AMSynth, {
         harmonicity: 1.5,
-        envelope: { attack: 0.08, decay: 0.2, sustain: 0.55, release: 0.9 },
+        envelope: { attack: 0.08, decay: 0.2, sustain: 0.55, release: shortRelease },
       }).toDestination();
     case "Duo Lead":
       return new Tone.PolySynth(Tone.DuoSynth, {
@@ -95,7 +97,7 @@ function createMelodySynthPreset(instrument: MelodyInstrument) {
     default:
       return new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "triangle" },
-        envelope: { attack: 0.01, decay: 0.01, sustain: 0.4, release: 0.25 },
+        envelope: { attack: 0.01, decay: 0.01, sustain: 0.4, release: shortRelease },
       }).toDestination();
   }
 }
@@ -510,18 +512,44 @@ export default function EditorPage() {
     };
   }, []);
 
-  // Mouse up anywhere ends scrubbing
+  // Mouse up anywhere ends scrubbing; global mousemove for smooth note resize drag
   useEffect(() => {
     const onUp = () => {
       isScrubbingRef.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
       stopNoteResize();
     };
+
+    const onMouseMove = (e: MouseEvent) => {
+      const resize = noteResizeRef.current;
+      if (!resize) return;
+      const el = noteScrollRef.current;
+      if (!el) return;
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const scrollLeft = el.scrollLeft;
+      const xInGrid = e.clientX - rect.left + scrollLeft;
+      let beat = Math.floor(xInGrid / CELL_W);
+      let offsetX = xInGrid - beat * CELL_W;
+      if (beat < 0) {
+        beat = 0;
+        offsetX = 0;
+      } else if (beat >= GRID_BEATS) {
+        beat = GRID_BEATS - 1;
+        offsetX = CELL_W - 0.01;
+      }
+      updateDraggedNoteDuration(beat, offsetX);
+    };
+
     window.addEventListener("mouseup", onUp);
+    window.addEventListener("mousemove", onMouseMove, { passive: false });
     return () => {
       clearPendingNoteDelete();
       window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("mousemove", onMouseMove);
     };
-  }, []);
+  }, [GRID_BEATS]);
 
   useEffect(() => {
     if (!noteMenu) return;
@@ -1083,6 +1111,8 @@ export default function EditorPage() {
                           if (!isNoteEnd || !isRightEdgeGrab) return;
 
                           suppressDeleteClickRef.current = true;
+                          document.body.style.cursor = "col-resize";
+                          document.body.style.userSelect = "none";
                           noteResizeRef.current = {
                             noteId: noteOccupyingCell.id,
                             pitch,
@@ -1093,6 +1123,8 @@ export default function EditorPage() {
 
                         const newNoteId = crypto.randomUUID();
                         previewNote(pitch, 0.8, defaultInstrument);
+                        document.body.style.cursor = "col-resize";
+                        document.body.style.userSelect = "none";
                         setProject((p) => ({
                           ...p,
                           notes: [
@@ -1114,16 +1146,6 @@ export default function EditorPage() {
                           pitch,
                           startBeat: beat,
                         };
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!noteResizeRef.current) return;
-                        if (noteResizeRef.current.pitch !== pitch) return;
-                        updateDraggedNoteDuration(beat, e.nativeEvent.offsetX);
-                      }}
-                      onMouseMove={(e) => {
-                        if (!noteResizeRef.current) return;
-                        if (noteResizeRef.current.pitch !== pitch) return;
-                        updateDraggedNoteDuration(beat, e.nativeEvent.offsetX);
                       }}
                       onClick={() => {
                         clearPendingNoteDelete();
