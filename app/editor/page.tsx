@@ -371,9 +371,12 @@ export default function EditorPage() {
   };
 
 
-  function step16FromClientX(clientX: number, el: HTMLElement, scrollOffsetPx = 0) {
+  // Convert a click on the ruler (which is already visually scrolled via CSS transform)
+  // into a 16th-step index. We do NOT add scrollLeft here, because the transform has
+  // already moved the element in view space.
+  function step16FromClientX(clientX: number, el: HTMLElement) {
     const rect = el.getBoundingClientRect();
-    const x = clientX - rect.left + scrollOffsetPx;
+    const x = clientX - rect.left;
     // 16th notes = half the width of an 8th-note cell
     return Math.floor(x / (CELL_W / 2));
   }
@@ -588,12 +591,21 @@ export default function EditorPage() {
       // play melodic notes only on EVEN 16ths (i.e. every 8th)
       if (step16 % 2 === 0) {
         const beat8 = step16 / 2;
-        const notesToPlay = project.notes.filter(n => n.startBeat === beat8);
+        const notesToPlay = project.notes.filter((n) => n.startBeat === beat8);
+
+        // Grid units: 1 beat8 = 1 eighth note.
+        // Quarter note duration in seconds = 60 / bpm, so one eighth = half of that.
+        const eighthDurationSeconds = (60 / project.bpm) / 2;
 
         for (const n of notesToPlay) {
           const instrument = normalizeInstrument(n.instrument);
-          const dur = (n.durationBeats / 2) + "n"; // quick hack; better: compute seconds
-          getMelodySynth(instrument).triggerAttackRelease(n.pitch, dur, time, n.velocity);
+          const noteDurationSeconds = n.durationBeats * eighthDurationSeconds;
+          getMelodySynth(instrument).triggerAttackRelease(
+            n.pitch,
+            noteDurationSeconds,
+            time,
+            n.velocity
+          );
         }
       }
   
@@ -993,14 +1005,14 @@ export default function EditorPage() {
                   }}
                   onMouseDown={(e) => {
                     if (!rulerRef.current) return;
-                    const b = step16FromClientX(e.clientX, rulerRef.current, scrollLeft);
+                    const b = step16FromClientX(e.clientX, rulerRef.current);
                     setPlayheadStep16(b);
                     isScrubbingRef.current = true;
                   }}
                   onMouseMove={(e) => {
                     if (!isScrubbingRef.current) return;
                     if (!rulerRef.current) return;
-                    const b = step16FromClientX(e.clientX, rulerRef.current, scrollLeft);
+                    const b = step16FromClientX(e.clientX, rulerRef.current);
                     setPlayheadStep16(b);
                   }}
                 >
