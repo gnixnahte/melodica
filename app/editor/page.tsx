@@ -319,16 +319,15 @@ export default function EditorPage() {
     }));
   };
 
-  const updateDraggedNoteDurationFromClientX = (clientX: number) => {
+  const updateDraggedNoteDuration = (hoverBeat: number, pointerOffsetX: number) => {
     const resize = noteResizeRef.current;
     if (!resize) return;
-    if (!noteScrollRef.current) return;
 
-    const rect = noteScrollRef.current.getBoundingClientRect();
-    const xInGrid = clientX - rect.left + scrollLeft;
-    const hoverBeat = Math.floor(xInGrid / CELL_W);
-    const clampedBeat = Math.max(0, Math.min(GRID_BEATS - 1, hoverBeat));
-    const endExclusive = Math.max(resize.startBeat + 1, clampedBeat + 1);
+    // Half-cell threshold: resize only after crossing halfway into the hovered cell.
+    const endExclusive = Math.max(
+      resize.startBeat + 1,
+      hoverBeat + (pointerOffsetX >= CELL_W / 2 ? 1 : 0)
+    );
     const nextDuration = endExclusive - resize.startBeat;
     updateNoteById(resize.noteId, { durationBeats: nextDuration });
   };
@@ -1006,10 +1005,6 @@ export default function EditorPage() {
             <div
               ref={noteScrollRef}
               onScroll={() => syncScroll("notes")}
-              onMouseMove={(e) => {
-                if (!noteResizeRef.current) return;
-                updateDraggedNoteDurationFromClientX(e.clientX);
-              }}
               className="relative overflow-x-auto"
               style={{ width: "100%" }}
             >
@@ -1093,7 +1088,6 @@ export default function EditorPage() {
                             pitch,
                             startBeat: noteOccupyingCell.startBeat,
                           };
-                          updateDraggedNoteDurationFromClientX(e.clientX);
                           return;
                         }
 
@@ -1120,7 +1114,16 @@ export default function EditorPage() {
                           pitch,
                           startBeat: beat,
                         };
-                        updateDraggedNoteDurationFromClientX(e.clientX);
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!noteResizeRef.current) return;
+                        if (noteResizeRef.current.pitch !== pitch) return;
+                        updateDraggedNoteDuration(beat, e.nativeEvent.offsetX);
+                      }}
+                      onMouseMove={(e) => {
+                        if (!noteResizeRef.current) return;
+                        if (noteResizeRef.current.pitch !== pitch) return;
+                        updateDraggedNoteDuration(beat, e.nativeEvent.offsetX);
                       }}
                       onClick={() => {
                         clearPendingNoteDelete();
