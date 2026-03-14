@@ -94,6 +94,10 @@ export default function EditorPage() {
   const [defaultInstrument, setDefaultInstrument] = useState<MelodyInstrument>("Triangle");
   const [noteMenu, setNoteMenu] = useState<NoteMenuState | null>(null);
 
+  const handleSave = () => {
+    localStorage.setItem("melodica:project", JSON.stringify(project));
+  };
+
   //synth and keys setup
   const keys = project.scaleFamily === "MAJOR" ? ALL_MAJOR_KEYS : ALL_MINOR_KEYS;
   const synthBankRef = useRef<Map<MelodyInstrument, MelodyPolySynth>>(new Map());
@@ -625,7 +629,7 @@ export default function EditorPage() {
 
   return (
     <main className="h-screen flex flex-col bg-neutral-100 dark:bg-neutral-950">
-      <EditorHeader />
+      <EditorHeader onSave={handleSave} />
       <EditorToolbar
         project={project}
         setProject={setProject}
