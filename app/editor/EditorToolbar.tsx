@@ -19,6 +19,7 @@ export interface EditorToolbarProps {
   setHighOctaveText: React.Dispatch<React.SetStateAction<string>>;
   keys: KeyRoot[];
   handleKeyChange: (newKey: KeyRoot) => void;
+  handleScaleFamilyChange: (newFamily: ScaleFamily) => void;
   defaultInstrument: MelodyInstrument;
   setDefaultInstrument: React.Dispatch<React.SetStateAction<MelodyInstrument>>;
   isPlaying: boolean;
@@ -40,6 +41,7 @@ export function EditorToolbar({
   setHighOctaveText,
   keys,
   handleKeyChange,
+  handleScaleFamilyChange,
   defaultInstrument,
   setDefaultInstrument,
   isPlaying,
@@ -153,13 +155,7 @@ export function EditorToolbar({
         <select
           className="w-fit rounded-md border px-2 py-0.5 text-sm bg-white dark:bg-neutral-900"
           value={project.scaleFamily}
-          onChange={(e) =>
-            setProject((p) => ({
-              ...p,
-              scaleFamily: e.target.value as ScaleFamily,
-              updatedAt: Date.now(),
-            }))
-          }
+          onChange={(e) => handleScaleFamilyChange(e.target.value as ScaleFamily)}
         >
           <option value="MAJOR">Major</option>
           <option value="MINOR">Minor</option>

@@ -19,6 +19,7 @@ import { EditorToolbar } from "./EditorToolbar";
 import { PianoRoll } from "./PianoRoll";
 import { DrumSequencer } from "./DrumSequencer";
 import { NoteOptionsMenu } from "./NoteOptionsMenu";
+import { supabase } from "@/lib/supabase";
 
 function createMelodySynthPreset(instrument: MelodyInstrument) {
   // Short release so notes stop when the playhead passes the end of the note (no reverb tail).
@@ -93,10 +94,7 @@ export default function EditorPage() {
   const [metronomeOn, setMetronomeOn] = useState(true);
   const [defaultInstrument, setDefaultInstrument] = useState<MelodyInstrument>("Triangle");
   const [noteMenu, setNoteMenu] = useState<NoteMenuState | null>(null);
-
-  const handleSave = () => {
-    localStorage.setItem("melodica:project", JSON.stringify(project));
-  };
+  const signatureNotesRef = useRef<Record<string, NoteEvent[]>>({});
 
   //synth and keys setup
   const keys = project.scaleFamily === "MAJOR" ? ALL_MAJOR_KEYS : ALL_MINOR_KEYS;
@@ -228,6 +226,45 @@ export default function EditorPage() {
   const keyToMidi = (key: KeyRoot, octave = 4) =>
     Tone.Frequency(`${key}${octave}`).toMidi();
 
+  const getCompatibleKeyForScaleFamily = (
+    key: KeyRoot,
+    scaleFamily: "MAJOR" | "MINOR"
+  ): KeyRoot => {
+    const options = scaleFamily === "MAJOR" ? ALL_MAJOR_KEYS : ALL_MINOR_KEYS;
+    if (options.includes(key as never)) return key;
+
+    const targetPc = keyToMidi(key) % 12;
+    const samePitchClass = options.find((candidate) => keyToMidi(candidate) % 12 === targetPc);
+    return samePitchClass ?? options[0];
+  };
+
+  const signatureKey = (
+    keyRoot: KeyRoot,
+    scaleFamily: "MAJOR" | "MINOR",
+    lowOctave: number,
+    highOctave: number
+  ) => `${scaleFamily}:${keyRoot}:${lowOctave}:${highOctave}`;
+
+  const snapPitchToScale = (pitch: string, allowedPitches: string[]) => {
+    if (allowedPitches.includes(pitch)) return pitch;
+    if (allowedPitches.length === 0) return pitch;
+
+    const targetMidi = Tone.Frequency(pitch).toMidi();
+    let bestPitch = allowedPitches[0];
+    let bestDistance = Math.abs(Tone.Frequency(bestPitch).toMidi() - targetMidi);
+
+    for (let i = 1; i < allowedPitches.length; i++) {
+      const candidate = allowedPitches[i];
+      const distance = Math.abs(Tone.Frequency(candidate).toMidi() - targetMidi);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestPitch = candidate;
+      }
+    }
+
+    return bestPitch;
+  };
+
   const transposeNotes = (notes: NoteEvent[], semitones: number) =>
     notes.map((n) => {
       const midi = Tone.Frequency(n.pitch).toMidi();
@@ -244,6 +281,42 @@ export default function EditorPage() {
         ...p,
         keyRoot: newKey,
         notes: transposeNotes(p.notes, semitones),
+        updatedAt: Date.now(),
+      };
+    });
+  };
+
+  const handleScaleFamilyChange = (newFamily: "MAJOR" | "MINOR") => {
+    setProject((p) => {
+      if (p.scaleFamily === newFamily) return p;
+
+      const currentSignature = signatureKey(
+        p.keyRoot,
+        p.scaleFamily,
+        p.lowOctave,
+        p.highOctave
+      );
+      signatureNotesRef.current[currentSignature] = p.notes.map((n) => ({ ...n }));
+
+      const nextKey = getCompatibleKeyForScaleFamily(p.keyRoot, newFamily);
+      const nextSignature = signatureKey(nextKey, newFamily, p.lowOctave, p.highOctave);
+      const cachedNotes = signatureNotesRef.current[nextSignature];
+
+      const nextNotes = cachedNotes
+        ? cachedNotes.map((n) => ({ ...n }))
+        : p.notes.map((n) => ({
+            ...n,
+            pitch: snapPitchToScale(
+              n.pitch,
+              getPitches(nextKey, newFamily, p.lowOctave, p.highOctave)
+            ),
+          }));
+
+      return {
+        ...p,
+        keyRoot: nextKey,
+        scaleFamily: newFamily,
+        notes: nextNotes,
         updatedAt: Date.now(),
       };
     });
@@ -331,6 +404,23 @@ export default function EditorPage() {
     if (drum === "tom")
       tomRef.current[variant]?.triggerAttackRelease("G2", "16n", undefined, velocity);
   };
+
+  async function handleSave() {
+    const { data, error } = await supabase.from("songs").insert([
+      {
+        title: "Test Song",
+        bpm: 120,
+        project_data: {
+          bars: 8,
+          noteGrid: [],
+          drumGrid: []
+        }
+      }
+    ]);
+
+    console.log("data:", data);
+    console.log("error:", error);
+  }
 
 
   // Convert a click on the ruler (which is already visually scrolled via CSS transform)
@@ -643,6 +733,7 @@ export default function EditorPage() {
         setHighOctaveText={setHighOctaveText}
         keys={keys}
         handleKeyChange={handleKeyChange}
+        handleScaleFamilyChange={handleScaleFamilyChange}
         defaultInstrument={defaultInstrument}
         setDefaultInstrument={setDefaultInstrument}
         isPlaying={isPlaying}
