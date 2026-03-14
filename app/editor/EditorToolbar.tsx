@@ -330,16 +330,22 @@ export function EditorToolbar({
         >
           {isPlaying ? (
             <span className="inline-flex items-center gap-1.5">
-              <span className="text-base" aria-hidden>
+              <span
+                className="inline-flex h-4 w-4 items-center justify-center text-[12px] leading-none"
+                aria-hidden
+              >
                 ■
-              </span>{" "}
+              </span>
               Stop
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5">
-              <span className="text-base" aria-hidden>
+              <span
+                className="inline-flex h-4 w-4 items-center justify-center text-[13px] leading-none"
+                aria-hidden
+              >
                 ▶
-              </span>{" "}
+              </span>
               Play
             </span>
           )}
@@ -353,15 +359,15 @@ export function EditorToolbar({
             role="switch"
             aria-checked={metronomeOn}
             onClick={() => setMetronomeOn((v) => !v)}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${
               metronomeOn
                 ? "bg-emerald-500"
                 : "bg-neutral-200 dark:bg-neutral-600"
             }`}
           >
             <span
-              className={`pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                metronomeOn ? "translate-x-5" : "translate-x-0"
+              className={`pointer-events-none absolute left-0.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow transition-transform ${
+                metronomeOn ? "translate-x-5 -translate-y-1/2" : "translate-x-0 -translate-y-1/2"
               }`}
             />
           </button>
