@@ -20,6 +20,7 @@ import { PianoRoll } from "./PianoRoll";
 import { DrumSequencer } from "./DrumSequencer";
 import { NoteOptionsMenu } from "./NoteOptionsMenu";
 import { supabase } from "@/lib/supabase";
+import { useSearchParams } from "next/navigation";
 
 function createMelodySynthPreset(instrument: MelodyInstrument) {
   // Short release so notes stop when the playhead passes the end of the note (no reverb tail).
@@ -63,6 +64,31 @@ function createMelodySynthPreset(instrument: MelodyInstrument) {
 type MelodyPolySynth = ReturnType<typeof createMelodySynthPreset>;
 
 export default function EditorPage() {
+  const searchParams = useSearchParams();
+  const songIdFromUrl = searchParams.get("id");
+  
+  useEffect(() => {
+    async function loadSong() {
+      if (!songIdFromUrl) return;
+
+      const { data, error } = await supabase
+        .from("songs")
+        .select("*")
+        .eq("id", songIdFromUrl)
+        .single();
+
+      console.log("loaded song data:", data);
+      console.log("loaded song error:", error);
+
+      if (error || !data) return;
+
+      setSongId(data.id);
+      setProject(data.project_data);
+    }
+
+    loadSong();
+  }, [songIdFromUrl]);
+  
   type NoteMenuState = {
     noteId: string;
     x: number;
