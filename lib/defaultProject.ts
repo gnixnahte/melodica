@@ -11,6 +11,9 @@ export function createDefaultProject(name = "Untitled"): Project {
     highOctave: 5,
     bars: 8,
     notes: [],
+    audioTracks: [
+      { id: crypto.randomUUID(), name: "Mic", clips: [] },
+    ],
     settings: {
       masterVolume: 0.9,
       reverbWet: 0.2,

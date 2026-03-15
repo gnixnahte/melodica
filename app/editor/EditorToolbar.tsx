@@ -50,24 +50,7 @@ export function EditorToolbar({
   setMetronomeOn,
 }: EditorToolbarProps) {
   return (
-    <div className="mx-4 mt-4 p-4 rounded-xl bg-white/70 dark:bg-neutral-900/70 backdrop-blur-md border border-neutral-200/50 dark:border-neutral-700/50 shadow-lg shadow-neutral-200/20 dark:shadow-neutral-950/50 flex flex-row flex-wrap items-center justify-evenly gap-x-4 gap-y-2 text-sm">
-      <div>
-        <span className="font-md">Name:</span>
-        <input
-          style={{ textAlign: "left" }}
-          type="text"
-          value={project.name}
-          onChange={(e) =>
-            setProject((p) => ({
-              ...p,
-              name: e.target.value,
-              updatedAt: Date.now(),
-            }))
-          }
-          size={project.name.length}
-        />
-      </div>
-
+    <div className="mx-4 mt-4 flex flex-row flex-wrap items-center justify-evenly gap-x-4 gap-y-2 rounded-2xl border border-white/60 bg-white/50 p-4 text-sm shadow-xl shadow-slate-300/20 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/35 dark:shadow-black/20">
       <div>
         <span className="font-medium">BPM:</span>
         <input
@@ -135,6 +118,18 @@ export function EditorToolbar({
                 ...p,
                 bars: clamped,
                 notes: p.notes.filter((n) => n.startBeat < maxBeat8),
+                audioTracks: p.audioTracks.map((track) => ({
+                  ...track,
+                  clips: track.clips
+                    .filter((clip) => clip.startStep16 < maxStep16)
+                    .map((clip) => ({
+                      ...clip,
+                      durationStep16: Math.max(
+                        1,
+                        Math.min(clip.durationStep16, maxStep16 - clip.startStep16)
+                      ),
+                    })),
+                })),
                 drumTracks: p.drumTracks.map((t) => ({
                   ...t,
                   hits: t.hits.filter((h) => h.step < maxStep16),
@@ -153,7 +148,7 @@ export function EditorToolbar({
       <div className="flex items-center gap-2">
         <span className="font-medium">Scale:</span>
         <select
-          className="w-fit rounded-md border px-2 py-0.5 text-sm bg-white dark:bg-neutral-900"
+          className="w-fit rounded-md border border-slate-300/70 bg-white/70 px-2 py-0.5 text-sm dark:border-white/15 dark:bg-slate-800/60"
           value={project.scaleFamily}
           onChange={(e) => handleScaleFamilyChange(e.target.value as ScaleFamily)}
         >

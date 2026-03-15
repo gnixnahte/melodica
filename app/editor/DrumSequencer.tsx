@@ -33,11 +33,11 @@ export function DrumSequencer({
   onPreviewDrum,
 }: DrumSequencerProps) {
   return (
-    <div className="shrink-0 border-t bg-neutral-50 dark:bg-neutral-950 p-2">
+    <div className="mx-4 mb-3 shrink-0 rounded-2xl border border-white/60 bg-white/50 p-2 shadow-xl shadow-slate-300/15 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/35 dark:shadow-black/20">
       <div className="flex items-center justify-between mb-2">
         <div className="text-sm font-medium">Drums</div>
         <button
-          className="rounded-md border px-3 py-1 text-sm"
+          className="rounded-md border border-slate-300/80 bg-white/70 px-3 py-1 text-sm text-slate-800 hover:bg-white dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700/80"
           onClick={() =>
             setProject((p) => ({
               ...p,
@@ -58,7 +58,7 @@ export function DrumSequencer({
           {project.drumTracks.map((track) => (
             <button
               key={track.id}
-              className="w-full h-6 rounded-md border text-xs"
+              className="h-6 w-full rounded-md border border-slate-300/80 bg-white/70 text-xs text-slate-800 dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100"
               type="button"
             >
               {track.drum}

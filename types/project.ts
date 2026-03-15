@@ -35,6 +35,20 @@ export type MelodyInstrument =
   | "AM Pad"
   | "Duo Lead";
 
+export type AudioClip = {
+  id: string;
+  startStep16: number;
+  durationStep16: number;
+  url: string;
+  gain?: number;
+};
+
+export type AudioTrack = {
+  id: string;
+  name: string;
+  clips: AudioClip[];
+};
+
 export type ProjectSettings = {
   masterVolume: number;
   reverbWet: number;
@@ -54,6 +68,7 @@ export type Project = {
   highOctave: number;        // e.g. 5
 
   notes: NoteEvent[];
+  audioTracks: AudioTrack[];
   settings: ProjectSettings;
   updatedAt: number;
 };

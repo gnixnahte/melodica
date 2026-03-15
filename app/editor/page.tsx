@@ -22,6 +22,9 @@ import { NoteOptionsMenu } from "./NoteOptionsMenu";
 import { supabase } from "@/lib/supabase";
 import { useSearchParams } from "next/navigation";
 
+const ALL_KEYS = new Set<KeyRoot>([...ALL_MAJOR_KEYS, ...ALL_MINOR_KEYS]);
+const AUDIO_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_AUDIO_BUCKET || "audio-clips";
+
 function createMelodySynthPreset(instrument: MelodyInstrument) {
   // Short release so notes stop when the playhead passes the end of the note (no reverb tail).
   const shortRelease = 0.04;
@@ -63,6 +66,96 @@ function createMelodySynthPreset(instrument: MelodyInstrument) {
 }
 type MelodyPolySynth = ReturnType<typeof createMelodySynthPreset>;
 
+function normalizeLoadedProject(
+  song: {
+    id: string;
+    title: string | null;
+    bpm: number | null;
+    project_data: unknown;
+  }
+): Project {
+  const base = createDefaultProject(song.title ?? "Untitled");
+  const raw =
+    song.project_data && typeof song.project_data === "object"
+      ? (song.project_data as Partial<Project>)
+      : {};
+
+  const keyRoot =
+    typeof raw.keyRoot === "string" && ALL_KEYS.has(raw.keyRoot as KeyRoot)
+      ? (raw.keyRoot as KeyRoot)
+      : base.keyRoot;
+  const scaleFamily =
+    raw.scaleFamily === "MAJOR" || raw.scaleFamily === "MINOR"
+      ? raw.scaleFamily
+      : base.scaleFamily;
+
+  const lowOctave =
+    typeof raw.lowOctave === "number" && Number.isFinite(raw.lowOctave)
+      ? Math.max(0, Math.min(8, raw.lowOctave))
+      : base.lowOctave;
+  const highOctave =
+    typeof raw.highOctave === "number" && Number.isFinite(raw.highOctave)
+      ? Math.max(0, Math.min(8, raw.highOctave))
+      : base.highOctave;
+
+  const safeProject: Project = {
+    ...base,
+    ...raw,
+    id: song.id ?? base.id,
+    name:
+      typeof raw.name === "string" && raw.name.trim().length > 0
+        ? raw.name
+        : song.title ?? base.name,
+    bpm:
+      typeof raw.bpm === "number" && Number.isFinite(raw.bpm)
+        ? raw.bpm
+        : typeof song.bpm === "number" && Number.isFinite(song.bpm)
+          ? song.bpm
+          : base.bpm,
+    bars:
+      typeof raw.bars === "number" && Number.isFinite(raw.bars)
+        ? Math.max(1, Math.min(256, Math.round(raw.bars)))
+        : base.bars,
+    keyRoot,
+    scaleFamily,
+    lowOctave: Math.min(lowOctave, highOctave),
+    highOctave: Math.max(lowOctave, highOctave),
+    notes: Array.isArray(raw.notes) ? raw.notes : base.notes,
+    audioTracks: Array.isArray(raw.audioTracks)
+      ? raw.audioTracks.map((track) => ({
+          id:
+            typeof track.id === "string" && track.id.length > 0
+              ? track.id
+              : crypto.randomUUID(),
+          name:
+            typeof track.name === "string" && track.name.length > 0
+              ? track.name
+              : "Mic",
+          clips: Array.isArray(track.clips)
+            ? track.clips.filter(
+                (clip) =>
+                  typeof clip.id === "string" &&
+                  typeof clip.url === "string" &&
+                  typeof clip.startStep16 === "number" &&
+                  typeof clip.durationStep16 === "number"
+              )
+            : [],
+        }))
+      : base.audioTracks,
+    drumTracks: Array.isArray(raw.drumTracks) ? raw.drumTracks : base.drumTracks,
+    settings:
+      raw.settings && typeof raw.settings === "object"
+        ? { ...base.settings, ...raw.settings }
+        : base.settings,
+    updatedAt:
+      typeof raw.updatedAt === "number" && Number.isFinite(raw.updatedAt)
+        ? raw.updatedAt
+        : Date.now(),
+  };
+
+  return safeProject;
+}
+
 export default function EditorPage() {
   const searchParams = useSearchParams();
   const songIdFromUrl = searchParams.get("id");
@@ -77,13 +170,15 @@ export default function EditorPage() {
         .eq("id", songIdFromUrl)
         .single();
 
-      console.log("loaded song data:", data);
-      console.log("loaded song error:", error);
-
       if (error || !data) return;
 
       setSongId(data.id);
-      setProject(data.project_data);
+      const loaded = normalizeLoadedProject(data);
+      setProject(loaded);
+      setBpmText(String(loaded.bpm));
+      setBarsText(String(loaded.bars));
+      setLowOctaveText(String(loaded.lowOctave));
+      setHighOctaveText(String(loaded.highOctave));
     }
 
     loadSong();
@@ -118,6 +213,10 @@ export default function EditorPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep16, setCurrentStep16] = useState(0);
   const [metronomeOn, setMetronomeOn] = useState(true);
+  const [isRecordingVocals, setIsRecordingVocals] = useState(false);
+  const [vocalCountdown, setVocalCountdown] = useState<number | null>(null);
+  const [audioInputDevices, setAudioInputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedAudioInputId, setSelectedAudioInputId] = useState<string>("default");
   const [defaultInstrument, setDefaultInstrument] = useState<MelodyInstrument>("Triangle");
   const [noteMenu, setNoteMenu] = useState<NoteMenuState | null>(null);
   const [songId, setSongId] = useState<string | null>(null);
@@ -158,6 +257,15 @@ export default function EditorPage() {
   const [noteViewportWidth, setNoteViewportWidth] = useState(0);
   const [drumViewportWidth, setDrumViewportWidth] = useState(0);
   const playheadStep16Ref = useRef(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingStartTimeMsRef = useRef(0);
+  const recordingStartStep16Ref = useRef<number | null>(null);
+  const recordingBpmRef = useRef<number>(120);
+  const countdownIntervalRef = useRef<number | null>(null);
+  const playingVocalAudioRef = useRef<HTMLAudioElement[]>([]);
+  const stopSongAfterVocalStopRef = useRef(false);
 
   const notePlayheadPx = (currentStep16 / 2) * CELL_W;
   const playheadLeftOfView = notePlayheadPx < scrollLeft;
@@ -218,6 +326,34 @@ export default function EditorPage() {
     observer.observe(drumEl);
 
     return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const mediaDevices = navigator.mediaDevices;
+
+    const refreshInputs = async () => {
+      try {
+        const devices = await mediaDevices.enumerateDevices();
+        const inputs = devices.filter((device) => device.kind === "audioinput");
+        if (!mounted) return;
+        setAudioInputDevices(inputs);
+        setSelectedAudioInputId((prev) =>
+          prev === "default" || inputs.some((device) => device.deviceId === prev)
+            ? prev
+            : (inputs[0]?.deviceId ?? "default")
+        );
+      } catch (error) {
+        console.error("Failed to enumerate audio input devices:", error);
+      }
+    };
+
+    void refreshInputs();
+    mediaDevices.addEventListener("devicechange", refreshInputs);
+    return () => {
+      mounted = false;
+      mediaDevices.removeEventListener("devicechange", refreshInputs);
+    };
   }, []);
 
   const noteWindow = useMemo(() => {
@@ -354,6 +490,231 @@ export default function EditorPage() {
     const clamped = Math.max(0, Math.min(DRUM_GRID_BEATS - 1, step16));
     playheadStep16Ref.current = clamped;
     setCurrentStep16(clamped);
+  };
+
+  const stopAllVocalAudio = () => {
+    for (const audio of playingVocalAudioRef.current) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    playingVocalAudioRef.current = [];
+  };
+
+  const clearCountdown = () => {
+    if (countdownIntervalRef.current !== null) {
+      window.clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    setVocalCountdown(null);
+  };
+
+  const stopAndReleaseMic = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    mediaRecorderRef.current = null;
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+  };
+
+  const ensureMicTrack = (projectValue: Project) => {
+    if (projectValue.audioTracks.length > 0) return projectValue.audioTracks;
+    return [{ id: crypto.randomUUID(), name: "Mic", clips: [] }];
+  };
+
+  const uploadVocalClip = async (blob: Blob) => {
+    const filePath = `vocals/${Date.now()}-${crypto.randomUUID()}.webm`;
+    const { error: uploadError } = await supabase.storage
+      .from(AUDIO_BUCKET)
+      .upload(filePath, blob, {
+        contentType: blob.type || "audio/webm",
+        upsert: false,
+      });
+    if (uploadError) throw uploadError;
+    const { data } = supabase.storage.from(AUDIO_BUCKET).getPublicUrl(filePath);
+    return data.publicUrl;
+  };
+
+  const triggerCountdownTick = (beatIndex: number) => {
+    const isDownbeat = beatIndex === 4;
+    metroRef.current?.triggerAttackRelease(
+      isDownbeat ? "C6" : "A5",
+      "32n",
+      undefined,
+      0.95
+    );
+  };
+
+  const handleToggleVocalRecording = async () => {
+    if (isRecordingVocals) {
+      stopSongAfterVocalStopRef.current = true;
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state === "recording") {
+        recorder.requestData();
+        recorder.stop();
+      } else {
+        setIsRecordingVocals(false);
+        setIsPlaying(false);
+        Tone.Transport.stop();
+        stopAllVocalAudio();
+      }
+      return;
+    }
+
+    if (vocalCountdown !== null) {
+      clearCountdown();
+      stopAndReleaseMic();
+      return;
+    }
+
+    try {
+      await Tone.start();
+      const requestedAudio: MediaTrackConstraints | boolean =
+        selectedAudioInputId !== "default"
+          ? { deviceId: { exact: selectedAudioInputId } }
+          : true;
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: requestedAudio });
+      } catch (error) {
+        if (selectedAudioInputId === "default") throw error;
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+      void navigator.mediaDevices
+        .enumerateDevices()
+        .then((devices) => {
+          const inputs = devices.filter((device) => device.kind === "audioinput");
+          setAudioInputDevices(inputs);
+          setSelectedAudioInputId((prev) =>
+            prev === "default" || inputs.some((device) => device.deviceId === prev)
+              ? prev
+              : (inputs[0]?.deviceId ?? "default")
+          );
+        })
+        .catch(() => {});
+      const recorder = new MediaRecorder(stream);
+      mediaStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      recordingChunksRef.current = [];
+      recordingBpmRef.current = project.bpm;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) recordingChunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = async () => {
+        let localUrl: string | null = null;
+        try {
+          if (recordingChunksRef.current.length === 0) return;
+          const blob = new Blob(recordingChunksRef.current, {
+            type: recorder.mimeType || "audio/webm",
+          });
+          const elapsedSec = Math.max(
+            0.05,
+            (performance.now() - recordingStartTimeMsRef.current) / 1000
+          );
+          const durationStep16 = Math.max(
+            1,
+            Math.round(elapsedSec * (recordingBpmRef.current / 60) * 4)
+          );
+          const startStep16 = recordingStartStep16Ref.current ?? playheadStep16Ref.current;
+          const clipId = crypto.randomUUID();
+          localUrl = URL.createObjectURL(blob);
+
+          setProject((p) => {
+            const tracks = ensureMicTrack(p);
+            const primary = tracks[0];
+            return {
+              ...p,
+              audioTracks: [
+                {
+                  ...primary,
+                  clips: [
+                    ...primary.clips,
+                    {
+                      id: clipId,
+                      startStep16,
+                      durationStep16,
+                      url: localUrl,
+                      gain: 1,
+                    },
+                  ],
+                },
+                ...tracks.slice(1),
+              ],
+              updatedAt: Date.now(),
+            };
+          });
+
+          try {
+            const uploadedUrl = await uploadVocalClip(blob);
+            // Keep the local blob URL if the uploaded URL is missing or malformed.
+            if (uploadedUrl && uploadedUrl.startsWith("http")) {
+              setProject((p) => {
+                const tracks = ensureMicTrack(p);
+                const primary = tracks[0];
+                return {
+                  ...p,
+                  audioTracks: [
+                    {
+                      ...primary,
+                      clips: primary.clips.map((clip) =>
+                        clip.id === clipId ? { ...clip, url: uploadedUrl } : clip
+                      ),
+                    },
+                    ...tracks.slice(1),
+                  ],
+                  updatedAt: Date.now(),
+                };
+              });
+              if (localUrl) URL.revokeObjectURL(localUrl);
+            }
+          } catch (uploadError) {
+            console.error("Vocal upload failed; keeping local clip URL:", uploadError);
+          }
+        } catch (error) {
+          console.error("Vocal recording save failed:", error);
+        } finally {
+          if (stopSongAfterVocalStopRef.current) {
+            setIsPlaying(false);
+            Tone.Transport.stop();
+            stopAllVocalAudio();
+          }
+          stopSongAfterVocalStopRef.current = false;
+          recordingChunksRef.current = [];
+          recordingStartStep16Ref.current = null;
+          stopAndReleaseMic();
+          setIsRecordingVocals(false);
+        }
+      };
+
+      let beatsLeft = 4;
+      setVocalCountdown(beatsLeft);
+      triggerCountdownTick(beatsLeft);
+
+      const msPerBeat = Math.max(80, Math.round((60_000 / Math.max(20, project.bpm))));
+      countdownIntervalRef.current = window.setInterval(() => {
+        beatsLeft -= 1;
+        if (beatsLeft <= 0) {
+          clearCountdown();
+          recordingStartStep16Ref.current = playheadStep16Ref.current;
+          recordingStartTimeMsRef.current = performance.now();
+          if (!isPlaying) setIsPlaying(true);
+          recorder.start();
+          setIsRecordingVocals(true);
+          return;
+        }
+        setVocalCountdown(beatsLeft);
+        triggerCountdownTick(beatsLeft);
+      }, msPerBeat);
+    } catch (error) {
+      console.error("Could not start vocal recording:", error);
+      clearCountdown();
+      stopAndReleaseMic();
+      setIsRecordingVocals(false);
+    }
   };
 
   const getMelodySynth = (instrument: MelodyInstrument) => {
@@ -498,6 +859,9 @@ export default function EditorPage() {
   useEffect(() => {
     const synthBank = synthBankRef.current;
     return () => {
+      clearCountdown();
+      stopAndReleaseMic();
+      stopAllVocalAudio();
       synthBank.forEach((synth) => synth.dispose());
       synthBank.clear();
     };
@@ -737,7 +1101,18 @@ export default function EditorPage() {
         if (h.drum === "hat") hatRef.current[i]?.triggerAttackRelease("16n", time, v);
         if (h.drum === "tom") tomRef.current[i]?.triggerAttackRelease("G2", "16n", time, v);
       }
-  
+
+      const vocalClipsNow = project.audioTracks
+        .flatMap((track) => track.clips)
+        .filter((clip) => clip.startStep16 === step16);
+      for (const clip of vocalClipsNow) {
+        const audio = new Audio(clip.url);
+        audio.volume = Math.max(0, Math.min(1, clip.gain ?? 1));
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
+        playingVocalAudioRef.current.push(audio);
+      }
+
       // UI update (do NOT do this directly in audio callback)
       Tone.Draw.schedule(() => {
         playheadStep16Ref.current = step16;
@@ -776,12 +1151,23 @@ export default function EditorPage() {
       }
 
       Tone.Transport.stop();
+      stopAllVocalAudio();
     };
-  }, [isPlaying, metronomeOn, project.bpm, project.notes, project.drumTracks]);
+  }, [isPlaying, metronomeOn, project.bpm, project.notes, project.drumTracks, project.audioTracks]);
 
   return (
-    <main className="h-screen flex flex-col bg-neutral-100 dark:bg-neutral-950">
-      <EditorHeader onSave={handleSave} />
+    <main className="flex h-screen flex-col bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#3a4654_0%,#2b3440_55%,#212833_100%)]">
+      <EditorHeader
+        onSave={handleSave}
+        projectName={project.name}
+        onProjectNameChange={(name) =>
+          setProject((p) => ({
+            ...p,
+            name,
+            updatedAt: Date.now(),
+          }))
+        }
+      />
       <EditorToolbar
         project={project}
         setProject={setProject}
@@ -831,6 +1217,14 @@ export default function EditorPage() {
         onPreviewNote={previewNote}
         updateNoteById={updateNoteById}
         defaultInstrument={defaultInstrument}
+        isRecordingVocals={isRecordingVocals}
+        vocalCountdown={vocalCountdown}
+        currentStep16={currentStep16}
+        recordingStartStep16={recordingStartStep16Ref.current}
+        onToggleVocalRecording={handleToggleVocalRecording}
+        audioInputDevices={audioInputDevices}
+        selectedAudioInputId={selectedAudioInputId}
+        onSelectedAudioInputIdChange={setSelectedAudioInputId}
       />
       <DrumSequencer
         project={project}

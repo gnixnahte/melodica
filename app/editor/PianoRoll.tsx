@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { Project, MelodyInstrument, NoteEvent } from "@/types/project";
 import { hasNoteAt, getNoteOccupying, normalizeInstrument } from "@/lib/editorUtils";
 import {
@@ -48,6 +49,14 @@ export interface PianoRollProps {
   ) => void;
   updateNoteById: (noteId: string, patch: Partial<NoteEvent>) => void;
   defaultInstrument: MelodyInstrument;
+  isRecordingVocals: boolean;
+  vocalCountdown: number | null;
+  currentStep16: number;
+  recordingStartStep16: number | null;
+  onToggleVocalRecording: () => void | Promise<void>;
+  audioInputDevices: MediaDeviceInfo[];
+  selectedAudioInputId: string;
+  onSelectedAudioInputIdChange: (deviceId: string) => void;
 }
 
 export function PianoRoll({
@@ -78,14 +87,138 @@ export function PianoRoll({
   onPreviewNote,
   updateNoteById,
   defaultInstrument,
+  isRecordingVocals,
+  vocalCountdown,
+  currentStep16,
+  recordingStartStep16,
+  onToggleVocalRecording,
+  audioInputDevices,
+  selectedAudioInputId,
+  onSelectedAudioInputIdChange,
 }: PianoRollProps) {
+  type VocalMenuState = {
+    clipId: string;
+    x: number;
+    y: number;
+  };
+  type VocalResizeState = {
+    clipId: string;
+    edge: "left" | "right";
+    anchorStep16: number;
+  };
+
+  const [vocalMenu, setVocalMenu] = useState<VocalMenuState | null>(null);
+  const vocalMenuRef = useRef<HTMLDivElement | null>(null);
+  const vocalResizeRef = useRef<VocalResizeState | null>(null);
+  const melodicPitches = pitches.length > 1 ? pitches.slice(0, -1) : pitches;
+  const micTrack = project.audioTracks[0];
+  const clipVisuals = micTrack?.clips ?? [];
+  const recordingClip =
+    isRecordingVocals && recordingStartStep16 !== null
+      ? {
+          startStep16: recordingStartStep16,
+          durationStep16: Math.max(1, currentStep16 - recordingStartStep16 + 1),
+        }
+      : null;
+  const allVisualClips = recordingClip ? [...clipVisuals, recordingClip] : clipVisuals;
+  const selectedVocalClip = vocalMenu
+    ? clipVisuals.find((clip) => clip.id === vocalMenu.clipId) ?? null
+    : null;
+
+  useEffect(() => {
+    if (!vocalMenu) return;
+
+    const onMouseDown = (event: MouseEvent) => {
+      if (!vocalMenuRef.current) return;
+      if (vocalMenuRef.current.contains(event.target as Node)) return;
+      setVocalMenu(null);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setVocalMenu(null);
+    };
+
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [vocalMenu]);
+
+  useEffect(() => {
+    const onMouseUp = () => {
+      if (!vocalResizeRef.current) return;
+      vocalResizeRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      const resize = vocalResizeRef.current;
+      const gridEl = noteScrollRef.current;
+      if (!resize || !gridEl) return;
+
+      e.preventDefault();
+      const rect = gridEl.getBoundingClientRect();
+      const xInGrid = e.clientX - rect.left + gridEl.scrollLeft;
+      const beat = Math.max(0, Math.min(gridBeats - 1, Math.floor(xInGrid / CELL_W)));
+      const offsetX = Math.max(0, Math.min(CELL_W - 0.01, xInGrid - beat * CELL_W));
+      const pointerStep16 = beat * 2 + (offsetX >= CELL_W / 2 ? 1 : 0);
+
+      setProject((p) => {
+        const tracks = p.audioTracks.length > 0 ? p.audioTracks : [{ id: crypto.randomUUID(), name: "Mic", clips: [] }];
+        const primary = tracks[0];
+        const maxStep16 = p.bars * NOTE_STEPS_PER_BAR * 2;
+        return {
+          ...p,
+          audioTracks: [
+            {
+              ...primary,
+              clips: primary.clips.map((clip) => {
+                if (clip.id !== resize.clipId) return clip;
+                if (resize.edge === "left") {
+                  const nextStart = Math.max(
+                    0,
+                    Math.min(resize.anchorStep16 - 1, pointerStep16)
+                  );
+                  return {
+                    ...clip,
+                    startStep16: nextStart,
+                    durationStep16: resize.anchorStep16 - nextStart,
+                  };
+                }
+                const requestedEnd = pointerStep16 + 1;
+                const nextEnd = Math.min(maxStep16, Math.max(resize.anchorStep16 + 1, requestedEnd));
+                return {
+                  ...clip,
+                  startStep16: resize.anchorStep16,
+                  durationStep16: Math.max(1, nextEnd - resize.anchorStep16),
+                };
+              }),
+            },
+            ...tracks.slice(1),
+          ],
+          updatedAt: Date.now(),
+        };
+      });
+    };
+
+    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("mousemove", onMouseMove, { passive: false });
+    return () => {
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("mousemove", onMouseMove);
+    };
+  }, [gridBeats, noteScrollRef, setProject]);
+
   return (
-    <div className="flex-1 overflow-auto border border-neutral-200 dark:border-neutral-700 mt-2 mx-4 mb-2 rounded-lg">
+    <div className="mx-4 mb-2 mt-2 flex-1 overflow-auto rounded-2xl border border-white/60 bg-white/50 shadow-xl shadow-slate-300/15 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/35 dark:shadow-black/20">
       <div className="flex flex-row pt-2 pb-2 pl-1 text-sm">
         <div className="flex flex-col mr-2 shrink-0">
           <div className="h-8 mb-1" />
           <ul className="w-14 items-center flex flex-col py-0 px-1 rounded-md text-lg list-none">
-            {pitches.map((pitch) => (
+            {melodicPitches.map((pitch) => (
               <li
                 key={pitch}
                 className="flex items-center pr-2 pl-2 rounded-md border"
@@ -95,10 +228,39 @@ export function PianoRoll({
               </li>
             ))}
           </ul>
+          <button
+            type="button"
+            onClick={() => void onToggleVocalRecording()}
+            className={`mt-1 flex items-center justify-center rounded-md border text-xs font-semibold transition-colors ${
+              isRecordingVocals || vocalCountdown !== null
+                ? "border-red-400 bg-red-500 text-white hover:bg-red-600"
+                : "border-slate-300/80 bg-white/75 text-slate-800 hover:bg-white dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700/80"
+            }`}
+            style={{ height: CELL_H, minHeight: CELL_H }}
+          >
+            {vocalCountdown !== null
+              ? `Rec ${vocalCountdown}`
+              : isRecordingVocals
+                ? "Stop Vox"
+                : "Mic"}
+          </button>
+          <select
+            value={selectedAudioInputId}
+            onChange={(e) => onSelectedAudioInputIdChange(e.target.value)}
+            className="mt-1 h-8 w-14 rounded-md border border-slate-300/80 bg-white/80 px-1 text-[10px] text-slate-700 dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100"
+            title="Vocal input device"
+          >
+            <option value="default">Default</option>
+            {audioInputDevices.map((device) => (
+              <option key={device.deviceId} value={device.deviceId}>
+                {device.label || `Mic ${device.deviceId.slice(0, 4)}`}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="w-full min-w-0">
-          <div className="sticky top-0 z-30 mb-1 bg-neutral-50/95 dark:bg-neutral-950/95 backdrop-blur-sm relative">
+          <div className="sticky top-0 z-30 mb-1 relative rounded-md bg-white/65 backdrop-blur-sm dark:bg-slate-900/50">
             {noteViewportWidth > 0 && (
               <div
                 className="absolute top-1 z-40 -translate-x-1/2 rounded bg-yellow-300 px-1.5 py-0.5 text-[10px] font-semibold text-black pointer-events-none"
@@ -107,7 +269,7 @@ export function PianoRoll({
                 {playheadIndicatorLabel}
               </div>
             )}
-            <div className="relative h-8 overflow-hidden rounded-sm bg-neutral-700">
+            <div className="relative h-8 overflow-hidden rounded-sm bg-slate-500/70 dark:bg-slate-700/80">
               <div
                 ref={rulerRef}
                 className="relative h-8 select-none"
@@ -132,15 +294,15 @@ export function PianoRoll({
                   const left = barIndex * barWidthPx;
                   return (
                     <div key={`bar-mark-${barIndex}`}>
-                      <div
-                        className="absolute top-0 bottom-0 w-px bg-neutral-400/70 pointer-events-none"
-                        style={{ left }}
-                      />
-                      <div
-                        className="absolute top-1 text-[10px] text-neutral-200 pointer-events-none"
-                        style={{ left: left + 4 }}
-                      >
-                        {barIndex + 1}
+                <div
+                  className="absolute top-0 bottom-0 w-px bg-slate-300/70 pointer-events-none dark:bg-slate-500/70"
+                  style={{ left }}
+                />
+                <div
+                  className="absolute top-1 text-[10px] text-slate-100 pointer-events-none"
+                  style={{ left: left + 4 }}
+                >
+                  {barIndex + 1}
                       </div>
                     </div>
                   );
@@ -164,10 +326,10 @@ export function PianoRoll({
               style={{ left: notePlayheadPx }}
             />
             <div
-              className="rounded-sm bg-neutral-600"
+              className="rounded-sm bg-slate-400/45 dark:bg-slate-800/50"
               style={{ width: gridBeats * CELL_W }}
             >
-              {pitches.map((pitch) => (
+              {melodicPitches.map((pitch) => (
                 <div key={pitch} className="flex" style={{ height: CELL_H }}>
                   <div
                     aria-hidden="true"
@@ -345,10 +507,160 @@ export function PianoRoll({
                   />
                 </div>
               ))}
+              <div className="flex" style={{ height: CELL_H }}>
+                <div
+                  aria-hidden="true"
+                  className="shrink-0"
+                  style={{ width: noteWindow.start * CELL_W }}
+                />
+                {Array.from(
+                  { length: noteWindow.end - noteWindow.start },
+                  (_, localIndex) => {
+                    const beat = noteWindow.start + localIndex;
+                    const cellStartStep16 = beat * 2;
+                    const cellEndStep16 = cellStartStep16 + 2;
+                    const clipInCell = allVisualClips.find(
+                      (clip) =>
+                        clip.startStep16 < cellEndStep16 &&
+                        clip.startStep16 + clip.durationStep16 > cellStartStep16
+                    );
+                    const clipStart = clipInCell?.startStep16 ?? -1;
+                    const clipEndExclusive =
+                      clipInCell ? clipInCell.startStep16 + clipInCell.durationStep16 : -1;
+                    const isClipStart = Boolean(
+                      clipInCell && clipStart >= cellStartStep16 && clipStart < cellEndStep16
+                    );
+                    const isClipEnd = Boolean(
+                      clipInCell &&
+                        clipEndExclusive > cellStartStep16 &&
+                        clipEndExclusive <= cellEndStep16
+                    );
+                    const barIndex = Math.floor(beat / NOTE_STEPS_PER_BAR);
+                    const isAltBar = barIndex % 2 === 1;
+                    const persistedClipInCell = clipVisuals.find(
+                      (clip) =>
+                        clip.startStep16 < cellEndStep16 &&
+                        clip.startStep16 + clip.durationStep16 > cellStartStep16
+                    );
+                    const persistedClipStartCell = persistedClipInCell
+                      ? Math.floor(persistedClipInCell.startStep16 / 2)
+                      : -1;
+                    const persistedClipEndCell = persistedClipInCell
+                      ? Math.floor(
+                          (persistedClipInCell.startStep16 + persistedClipInCell.durationStep16 - 1) / 2
+                        )
+                      : -1;
+
+                    return (
+                      <div
+                        key={`mic-${beat}`}
+                        className={`border border-neutral-400 dark:border-neutral-600 ${
+                          clipInCell
+                            ? recordingClip && clipInCell === recordingClip
+                              ? "bg-red-500/75"
+                              : "bg-cyan-500/70"
+                            : isAltBar
+                              ? "bg-neutral-300 dark:bg-neutral-800"
+                              : "bg-neutral-200 dark:bg-neutral-900"
+                        }`}
+                        style={{
+                          width: CELL_W,
+                          height: CELL_H,
+                          borderTopLeftRadius: isClipStart ? 4 : 0,
+                          borderBottomLeftRadius: isClipStart ? 4 : 0,
+                          borderTopRightRadius: isClipEnd ? 4 : 0,
+                          borderBottomRightRadius: isClipEnd ? 4 : 0,
+                          borderLeftWidth: clipInCell && !isClipStart ? 0 : 1,
+                          borderRightWidth: clipInCell && !isClipEnd ? 0 : 1,
+                        }}
+                        onMouseDown={(e) => {
+                          if (!persistedClipInCell) return;
+                          const onLeftEdge =
+                            beat === persistedClipStartCell &&
+                            e.nativeEvent.offsetX <= NOTE_RESIZE_HANDLE_PX;
+                          const onRightEdge =
+                            beat === persistedClipEndCell &&
+                            e.nativeEvent.offsetX >= CELL_W - NOTE_RESIZE_HANDLE_PX;
+
+                          if (!onLeftEdge && !onRightEdge) return;
+
+                          document.body.style.cursor = "col-resize";
+                          document.body.style.userSelect = "none";
+                          vocalResizeRef.current = {
+                            clipId: persistedClipInCell.id,
+                            edge: onLeftEdge ? "left" : "right",
+                            anchorStep16: onLeftEdge
+                              ? persistedClipInCell.startStep16 + persistedClipInCell.durationStep16
+                              : persistedClipInCell.startStep16,
+                          };
+                        }}
+                        onDoubleClick={(e) => {
+                          if (!persistedClipInCell) return;
+                          const menuWidth = 170;
+                          const menuHeight = 110;
+                          const x = Math.min(
+                            e.clientX + 10,
+                            window.innerWidth - menuWidth - 12
+                          );
+                          const y = Math.min(
+                            e.clientY + 10,
+                            window.innerHeight - menuHeight - 12
+                          );
+                          setVocalMenu({
+                            clipId: persistedClipInCell.id,
+                            x,
+                            y,
+                          });
+                        }}
+                      />
+                    );
+                  }
+                )}
+                <div
+                  aria-hidden="true"
+                  className="shrink-0"
+                  style={{
+                    width: (gridBeats - noteWindow.end) * CELL_W,
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
       </div>
+      {vocalMenu && selectedVocalClip && (
+        <div
+          ref={vocalMenuRef}
+          className="fixed z-[70] w-40 rounded-xl border border-slate-300/70 bg-white/90 p-2 shadow-xl backdrop-blur-md dark:border-white/15 dark:bg-slate-900/90"
+          style={{ left: vocalMenu.x, top: vocalMenu.y }}
+        >
+          <div className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Vocal Clip</div>
+          <button
+            type="button"
+            className="w-full rounded-md border border-red-300 bg-red-500/90 px-2 py-1.5 text-left text-xs font-semibold text-white transition-colors hover:bg-red-600"
+            onClick={() => {
+              setProject((p) => {
+                const tracks = p.audioTracks.length > 0 ? p.audioTracks : [{ id: crypto.randomUUID(), name: "Mic", clips: [] }];
+                const primary = tracks[0];
+                return {
+                  ...p,
+                  audioTracks: [
+                    {
+                      ...primary,
+                      clips: primary.clips.filter((clip) => clip.id !== selectedVocalClip.id),
+                    },
+                    ...tracks.slice(1),
+                  ],
+                  updatedAt: Date.now(),
+                };
+              });
+              setVocalMenu(null);
+            }}
+          >
+            Delete Clip
+          </button>
+        </div>
+      )}
     </div>
   );
 }

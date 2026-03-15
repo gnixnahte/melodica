@@ -30,7 +30,7 @@ export function NoteOptionsMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 w-60 rounded-md border bg-white p-3 shadow-xl dark:bg-neutral-900"
+      className="fixed z-50 w-60 rounded-lg border border-white/70 bg-white/75 p-3 shadow-2xl shadow-slate-400/25 backdrop-blur-xl dark:border-white/15 dark:bg-slate-900/60 dark:shadow-black/20"
       style={{ left: position.x, top: position.y }}
     >
       <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">

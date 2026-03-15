@@ -3,23 +3,38 @@ import Link from "next/link";
 
 export interface EditorHeaderProps {
   onSave: () => void;
+  projectName: string;
+  onProjectNameChange: (name: string) => void;
 }
 
-export function EditorHeader({ onSave }: EditorHeaderProps) {
+export function EditorHeader({
+  onSave,
+  projectName,
+  onProjectNameChange,
+}: EditorHeaderProps) {
   return (
-    <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-md border-b border-neutral-200/60 dark:border-neutral-700/60">
-      <h1 className="text-2xl font-bold">Editor</h1>
+    <header className="sticky top-0 z-40 flex items-center justify-between border-b border-white/60 bg-white/45 px-4 py-3 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/35">
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-bold">Editor</h1>
+        <input
+          type="text"
+          value={projectName}
+          onChange={(e) => onProjectNameChange(e.currentTarget.value)}
+          style={{ width: `${Math.max(14, Math.min(42, projectName.length + 2))}ch` }}
+          className="min-w-48 rounded-lg border border-white/70 bg-white/70 px-3 py-1.5 text-sm text-slate-800 outline-none ring-0 transition-colors focus:border-slate-400 dark:border-white/15 dark:bg-slate-800/60 dark:text-slate-100"
+        />
+      </div>
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={onSave}
-          className="rounded-lg border border-neutral-200 dark:border-neutral-600 px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          className="rounded-lg border border-white/70 bg-white/70 px-4 py-2 text-sm text-slate-800 transition-colors hover:bg-white dark:border-white/15 dark:bg-slate-800/60 dark:text-slate-100 dark:hover:bg-slate-700/70"
         >
           Save
         </button>
         <Link
           href="/dashboard"
-          className="rounded-lg border border-neutral-200 dark:border-neutral-600 px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          className="rounded-lg border border-white/70 bg-white/70 px-4 py-2 text-sm text-slate-800 transition-colors hover:bg-white dark:border-white/15 dark:bg-slate-800/60 dark:text-slate-100 dark:hover:bg-slate-700/70"
         >
           Back to Dashboard
         </Link>
