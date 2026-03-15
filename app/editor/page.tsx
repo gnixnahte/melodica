@@ -409,6 +409,7 @@ export default function EditorPage() {
 
  const handleSave = async () => {
   console.log("songId before save:", songId);
+  const now = new Date().toISOString();
 
   if (songId) {
     console.log("RUNNING UPDATE");
@@ -419,6 +420,8 @@ export default function EditorPage() {
         title: project.name || "Untitled",
         bpm: project.bpm || 120,
         project_data: project,
+        updated_at: now,
+
       })
       .eq("id", songId)
       .select()
@@ -437,6 +440,9 @@ export default function EditorPage() {
           title: project.name || "Untitled",
           bpm: project.bpm || 120,
           project_data: project,
+          created_at: now,
+          updated_at: now,
+
         },
       ])
       .select()
