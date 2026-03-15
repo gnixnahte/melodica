@@ -94,6 +94,8 @@ export default function EditorPage() {
   const [metronomeOn, setMetronomeOn] = useState(true);
   const [defaultInstrument, setDefaultInstrument] = useState<MelodyInstrument>("Triangle");
   const [noteMenu, setNoteMenu] = useState<NoteMenuState | null>(null);
+  const [songId, setSongId] = useState<string | null>(null);
+
   const signatureNotesRef = useRef<Record<string, NoteEvent[]>>({});
 
   //synth and keys setup
@@ -405,22 +407,50 @@ export default function EditorPage() {
       tomRef.current[variant]?.triggerAttackRelease("G2", "16n", undefined, velocity);
   };
 
-  async function handleSave() {
-    const { data, error } = await supabase.from("songs").insert([
-      {
-        title: "Test Song",
-        bpm: 120,
-        project_data: {
-          bars: 8,
-          noteGrid: [],
-          drumGrid: []
-        }
-      }
-    ]);
+ const handleSave = async () => {
+  console.log("songId before save:", songId);
 
-    console.log("data:", data);
-    console.log("error:", error);
+  if (songId) {
+    console.log("RUNNING UPDATE");
+
+    const { data, error } = await supabase
+      .from("songs")
+      .update({
+        title: project.name || "Untitled",
+        bpm: project.bpm || 120,
+        project_data: project,
+      })
+      .eq("id", songId)
+      .select()
+      .single();
+
+    console.log("update data:", data);
+    console.log("update error:", error);
+
+  } else {
+    console.log("RUNNING INSERT");
+
+    const { data, error } = await supabase
+      .from("songs")
+      .insert([
+        {
+          title: project.name || "Untitled",
+          bpm: project.bpm || 120,
+          project_data: project,
+        },
+      ])
+      .select()
+      .single();
+
+    console.log("insert data:", data);
+    console.log("insert error:", error);
+
+    if (data) {
+      console.log("setting songId to:", data.id);
+      setSongId(data.id);
+    }
   }
+};
 
 
   // Convert a click on the ruler (which is already visually scrolled via CSS transform)
