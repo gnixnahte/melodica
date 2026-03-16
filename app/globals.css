@@ -24,3 +24,11 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
 }
+
+button {
+  transition: box-shadow 180ms ease, border-color 180ms ease, filter 180ms ease;
+}
+
+button:hover:not(:disabled) {
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.72);
+}

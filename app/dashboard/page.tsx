@@ -410,13 +410,13 @@ export default function DashboardPage() {
         <div className="flex gap-3">
           <Link
             href="/editor"
-            className="rounded-md border border-white/70 bg-white/70 px-4 py-2 text-sm text-slate-800 shadow-sm backdrop-blur hover:bg-white dark:border-white/15 dark:bg-slate-800/60 dark:text-slate-100 dark:hover:bg-slate-700/70"
+            className="rounded-md border border-white/70 bg-white/70 px-4 py-2 text-sm text-slate-800 shadow-sm backdrop-blur transition-all duration-200 hover:border-white/95 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:border-white/15 dark:bg-slate-800/60 dark:text-slate-100 dark:hover:bg-slate-700/70 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
           >
             New Project
           </Link>
           <Link
             href="/"
-            className="rounded-md border border-slate-300/80 bg-slate-800 px-4 py-2 text-sm text-white hover:bg-slate-700 dark:border-slate-500/50 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white"
+            className="rounded-md border border-slate-300/80 bg-slate-800 px-4 py-2 text-sm text-white transition-all duration-200 hover:border-white/90 hover:bg-slate-700 hover:shadow-[0_0_18px_rgba(255,255,255,0.5)] dark:border-slate-500/50 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.5)]"
           >
             Log Out
           </Link>
@@ -456,7 +456,14 @@ export default function DashboardPage() {
                         max={100}
                         value={sliderValue}
                         onChange={(e) => handleSeek(song.id, Number(e.currentTarget.value))}
-                        className="w-full accent-slate-600"
+                        className="h-2 w-full appearance-none rounded-full border border-white/70 transition-all duration-200"
+                        style={{
+                          background: `linear-gradient(90deg, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.96) ${sliderValue}%, rgba(148,163,184,0.35) ${sliderValue}%, rgba(148,163,184,0.35) 100%)`,
+                          boxShadow:
+                            isActive && isPlaying
+                              ? "0 0 16px rgba(255,255,255,0.8), inset 0 0 8px rgba(255,255,255,0.55)"
+                              : "inset 0 0 6px rgba(255,255,255,0.25)",
+                        }}
                       />
                       <span className="w-20 text-right text-xs opacity-70">
                         {`${formatDuration(currentSeconds)} / ${formatDuration(songDurationSeconds)}`}
@@ -466,20 +473,20 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => void handlePlayPause(song)}
-                      className="rounded-md border border-slate-300/80 bg-white/70 px-3 py-1 text-sm text-slate-800 hover:bg-white dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700/80"
+                      className="rounded-md border border-slate-300/80 bg-white/70 px-3 py-1 text-sm text-slate-800 transition-all duration-200 hover:border-white/95 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
                     >
                       {activeSongId === song.id && isPlaying ? "Pause" : "Play"}
                     </button>
                     <button
                       onClick={() => router.push(`/editor?id=${song.id}`)}
-                      className="rounded-md border border-slate-300/80 bg-white/70 px-3 py-1 text-sm text-slate-800 hover:bg-white dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700/80"
+                      className="rounded-md border border-slate-300/80 bg-white/70 px-3 py-1 text-sm text-slate-800 transition-all duration-200 hover:border-white/95 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
                     >
                       Open
                     </button>
                     <button
                       onClick={() => void handleDelete(song.id, song.title)}
                       disabled={deletingId === song.id}
-                      className="rounded-md border border-red-300/70 bg-red-50/80 px-3 py-1 text-sm text-red-700 hover:bg-red-100/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-300/30 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/40"
+                      className="rounded-md border border-red-300/70 bg-red-50/80 px-3 py-1 text-sm text-red-700 transition-all duration-200 hover:bg-red-100/80 hover:shadow-[0_0_16px_rgba(255,210,210,0.75)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-300/30 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/40 dark:hover:shadow-[0_0_16px_rgba(255,210,210,0.35)]"
                     >
                       {deletingId === song.id ? "Deleting..." : "Delete"}
                     </button>

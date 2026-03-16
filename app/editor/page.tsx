@@ -25,6 +25,18 @@ import { useSearchParams } from "next/navigation";
 const ALL_KEYS = new Set<KeyRoot>([...ALL_MAJOR_KEYS, ...ALL_MINOR_KEYS]);
 const AUDIO_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_AUDIO_BUCKET || "audio-clips";
 
+function getBestRecorderMimeType() {
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/ogg;codecs=opus",
+    "audio/webm",
+  ];
+  for (const candidate of candidates) {
+    if (MediaRecorder.isTypeSupported(candidate)) return candidate;
+  }
+  return "";
+}
+
 function createMelodySynthPreset(instrument: MelodyInstrument) {
   // Short release so notes stop when the playhead passes the end of the note (no reverb tail).
   const shortRelease = 0.04;
@@ -266,6 +278,7 @@ export default function EditorPage() {
   const countdownIntervalRef = useRef<number | null>(null);
   const playingVocalAudioRef = useRef<HTMLAudioElement[]>([]);
   const stopSongAfterVocalStopRef = useRef(false);
+  const previousIsPlayingRef = useRef(false);
 
   const notePlayheadPx = (currentStep16 / 2) * CELL_W;
   const playheadLeftOfView = notePlayheadPx < scrollLeft;
@@ -331,6 +344,7 @@ export default function EditorPage() {
   useEffect(() => {
     let mounted = true;
     const mediaDevices = navigator.mediaDevices;
+    if (!mediaDevices?.enumerateDevices) return;
 
     const refreshInputs = async () => {
       try {
@@ -349,10 +363,14 @@ export default function EditorPage() {
     };
 
     void refreshInputs();
-    mediaDevices.addEventListener("devicechange", refreshInputs);
+    if (typeof mediaDevices.addEventListener === "function") {
+      mediaDevices.addEventListener("devicechange", refreshInputs);
+    }
     return () => {
       mounted = false;
-      mediaDevices.removeEventListener("devicechange", refreshInputs);
+      if (typeof mediaDevices.removeEventListener === "function") {
+        mediaDevices.removeEventListener("devicechange", refreshInputs);
+      }
     };
   }, []);
 
@@ -571,18 +589,35 @@ export default function EditorPage() {
 
     try {
       await Tone.start();
+      const mediaDevices = navigator.mediaDevices;
+      if (!mediaDevices?.getUserMedia) {
+        throw new Error("This browser does not support audio input recording.");
+      }
       const requestedAudio: MediaTrackConstraints | boolean =
         selectedAudioInputId !== "default"
-          ? { deviceId: { exact: selectedAudioInputId } }
-          : true;
+          ? {
+              deviceId: { exact: selectedAudioInputId },
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+              channelCount: 1,
+              sampleRate: 48000,
+            }
+          : {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+              channelCount: 1,
+              sampleRate: 48000,
+            };
       let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: requestedAudio });
+        stream = await mediaDevices.getUserMedia({ audio: requestedAudio });
       } catch (error) {
         if (selectedAudioInputId === "default") throw error;
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream = await mediaDevices.getUserMedia({ audio: true });
       }
-      void navigator.mediaDevices
+      void mediaDevices
         .enumerateDevices()
         .then((devices) => {
           const inputs = devices.filter((device) => device.kind === "audioinput");
@@ -594,7 +629,11 @@ export default function EditorPage() {
           );
         })
         .catch(() => {});
-      const recorder = new MediaRecorder(stream);
+      const preferredMimeType = getBestRecorderMimeType();
+      const recorder = new MediaRecorder(stream, {
+        ...(preferredMimeType ? { mimeType: preferredMimeType } : {}),
+        audioBitsPerSecond: 256_000,
+      });
       mediaStreamRef.current = stream;
       mediaRecorderRef.current = recorder;
       recordingChunksRef.current = [];
@@ -605,7 +644,7 @@ export default function EditorPage() {
       };
 
       recorder.onstop = async () => {
-        let localUrl: string | null = null;
+        let localUrl: string | undefined;
         try {
           if (recordingChunksRef.current.length === 0) return;
           const blob = new Blob(recordingChunksRef.current, {
@@ -621,7 +660,8 @@ export default function EditorPage() {
           );
           const startStep16 = recordingStartStep16Ref.current ?? playheadStep16Ref.current;
           const clipId = crypto.randomUUID();
-          localUrl = URL.createObjectURL(blob);
+          const clipUrl = URL.createObjectURL(blob);
+          localUrl = clipUrl;
 
           setProject((p) => {
             const tracks = ensureMicTrack(p);
@@ -637,7 +677,7 @@ export default function EditorPage() {
                       id: clipId,
                       startStep16,
                       durationStep16,
-                      url: localUrl,
+                      url: clipUrl,
                       gain: 1,
                     },
                   ],
@@ -1154,6 +1194,18 @@ export default function EditorPage() {
       stopAllVocalAudio();
     };
   }, [isPlaying, metronomeOn, project.bpm, project.notes, project.drumTracks, project.audioTracks]);
+
+  useEffect(() => {
+    const wasPlaying = previousIsPlayingRef.current;
+    if (wasPlaying && !isPlaying && isRecordingVocals) {
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state === "recording") {
+        recorder.requestData();
+        recorder.stop();
+      }
+    }
+    previousIsPlayingRef.current = isPlaying;
+  }, [isPlaying, isRecordingVocals]);
 
   return (
     <main className="flex h-screen flex-col bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#3a4654_0%,#2b3440_55%,#212833_100%)]">
