@@ -225,6 +225,7 @@ export default function EditorPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep16, setCurrentStep16] = useState(0);
   const [metronomeOn, setMetronomeOn] = useState(true);
+  const [notesMuted, setNotesMuted] = useState(false);
   const [isRecordingVocals, setIsRecordingVocals] = useState(false);
   const [vocalCountdown, setVocalCountdown] = useState<number | null>(null);
   const [audioInputDevices, setAudioInputDevices] = useState<MediaDeviceInfo[]>([]);
@@ -803,6 +804,7 @@ export default function EditorPage() {
     velocity = 0.8,
     instrument: MelodyInstrument = defaultInstrument
   ) => {
+    if (notesMuted) return;
     await Tone.start(); // unlock audio if needed
     const dur = 0.12;   // seconds (short “tap”)
     getMelodySynth(instrument).triggerAttackRelease(pitch, dur, undefined, velocity);
@@ -813,6 +815,7 @@ export default function EditorPage() {
     variant = 0,
     velocity = 0.9
   ) => {
+    if (notesMuted) return;
     const key = `${drum}:${variant}`;
     const now = Tone.now();
 
@@ -1107,7 +1110,7 @@ export default function EditorPage() {
 
     const id = Tone.Transport.scheduleRepeat((time) => {
       // play melodic notes only on EVEN 16ths (i.e. every 8th)
-      if (step16 % 2 === 0) {
+      if (!notesMuted && step16 % 2 === 0) {
         const beat8 = step16 / 2;
         const notesToPlay = project.notes.filter((n) => n.startBeat === beat8);
 
@@ -1128,18 +1131,20 @@ export default function EditorPage() {
       }
   
       // drums on every 16th
-      const drumHitsNow = project.drumTracks
-        .flatMap(t => t.hits)
-        .filter(h => h.step === step16);
-  
-      for (const h of drumHitsNow) {
-        const v = h.velocity ?? 0.9;
-        const i = h.variant ?? 0;
-  
-        if (h.drum === "kick") kickRef.current[i]?.triggerAttackRelease("C1", "16n", time, v);
-        if (h.drum === "snare") snareRef.current[i]?.triggerAttackRelease("16n", time, v);
-        if (h.drum === "hat") hatRef.current[i]?.triggerAttackRelease("16n", time, v);
-        if (h.drum === "tom") tomRef.current[i]?.triggerAttackRelease("G2", "16n", time, v);
+      if (!notesMuted) {
+        const drumHitsNow = project.drumTracks
+          .flatMap(t => t.hits)
+          .filter(h => h.step === step16);
+    
+        for (const h of drumHitsNow) {
+          const v = h.velocity ?? 0.9;
+          const i = h.variant ?? 0;
+    
+          if (h.drum === "kick") kickRef.current[i]?.triggerAttackRelease("C1", "16n", time, v);
+          if (h.drum === "snare") snareRef.current[i]?.triggerAttackRelease("16n", time, v);
+          if (h.drum === "hat") hatRef.current[i]?.triggerAttackRelease("16n", time, v);
+          if (h.drum === "tom") tomRef.current[i]?.triggerAttackRelease("G2", "16n", time, v);
+        }
       }
 
       const vocalClipsNow = project.audioTracks
@@ -1193,7 +1198,12 @@ export default function EditorPage() {
       Tone.Transport.stop();
       stopAllVocalAudio();
     };
-  }, [isPlaying, metronomeOn, project.bpm, project.notes, project.drumTracks, project.audioTracks]);
+  }, [isPlaying, metronomeOn, notesMuted, project.bpm, project.notes, project.drumTracks, project.audioTracks]);
+
+  useEffect(() => {
+    if (!notesMuted) return;
+    synthBankRef.current.forEach((synth) => synth.releaseAll());
+  }, [notesMuted]);
 
   useEffect(() => {
     const wasPlaying = previousIsPlayingRef.current;
@@ -1240,6 +1250,8 @@ export default function EditorPage() {
         setIsPlaying={setIsPlaying}
         metronomeOn={metronomeOn}
         setMetronomeOn={setMetronomeOn}
+        notesMuted={notesMuted}
+        setNotesMuted={setNotesMuted}
       />
       <PianoRoll
         project={project}

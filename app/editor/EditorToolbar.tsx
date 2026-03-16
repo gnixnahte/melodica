@@ -26,6 +26,8 @@ export interface EditorToolbarProps {
   setIsPlaying: React.Dispatch<React.SetStateAction<boolean>>;
   metronomeOn: boolean;
   setMetronomeOn: React.Dispatch<React.SetStateAction<boolean>>;
+  notesMuted: boolean;
+  setNotesMuted: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 export function EditorToolbar({
@@ -48,6 +50,8 @@ export function EditorToolbar({
   setIsPlaying,
   metronomeOn,
   setMetronomeOn,
+  notesMuted,
+  setNotesMuted,
 }: EditorToolbarProps) {
   return (
     <div className="mx-4 mt-4 flex flex-row flex-wrap items-center justify-evenly gap-x-4 gap-y-2 rounded-2xl border border-white/60 bg-white/50 p-4 text-sm shadow-xl shadow-slate-300/20 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/35 dark:shadow-black/20">
@@ -308,7 +312,7 @@ export function EditorToolbar({
       <div className="flex items-center gap-3">
         <button
           type="button"
-          className={`rounded-full px-6 py-3 text-sm font-medium text-white shadow-lg transition-all ${
+          className={`rounded-full px-6 py-3 text-sm font-medium text-white shadow-lg transition-all hover:shadow-[0_0_18px_rgba(255,255,255,0.72)] ${
             isPlaying
               ? "bg-red-500 hover:bg-red-600 shadow-red-500/30"
               : "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30"
@@ -341,6 +345,17 @@ export function EditorToolbar({
             </span>
           )}
         </button>
+        <button
+          type="button"
+          onClick={() => setNotesMuted((prev) => !prev)}
+          className={`rounded-full px-4 py-2 text-xs font-semibold transition-all duration-200 ${
+            notesMuted
+              ? "border border-amber-300/80 bg-amber-500/85 text-white hover:bg-amber-500 hover:shadow-[0_0_18px_rgba(255,255,255,0.72)]"
+              : "border border-white/70 bg-white/70 text-slate-800 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.72)] dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
+          }`}
+        >
+          {notesMuted ? "Unmute Notes" : "Mute Notes"}
+        </button>
         <div className="flex items-center gap-2">
           <span className="text-neutral-600 dark:text-neutral-400 text-sm font-medium">
             Metronome
@@ -350,7 +365,7 @@ export function EditorToolbar({
             role="switch"
             aria-checked={metronomeOn}
             onClick={() => setMetronomeOn((v) => !v)}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 hover:shadow-[0_0_16px_rgba(255,255,255,0.7)] ${
               metronomeOn
                 ? "bg-emerald-500"
                 : "bg-neutral-200 dark:bg-neutral-600"

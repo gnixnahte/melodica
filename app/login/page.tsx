@@ -32,7 +32,7 @@ export default function LoginPage() {
 
           <button
             type="button"
-            className="w-full rounded-md bg-black px-4 py-2 text-sm text-white"
+            className="w-full rounded-md bg-black px-4 py-2 text-sm text-white transition-all duration-200 hover:shadow-[0_0_18px_rgba(255,255,255,0.7)]"
           >
             Continue
           </button>

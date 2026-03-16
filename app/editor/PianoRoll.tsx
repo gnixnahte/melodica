@@ -231,7 +231,7 @@ export function PianoRoll({
           <button
             type="button"
             onClick={() => void onToggleVocalRecording()}
-            className={`mt-1 flex items-center justify-center rounded-md border text-xs font-semibold transition-colors ${
+            className={`mt-1 flex items-center justify-center rounded-md border text-xs font-semibold transition-all duration-200 hover:shadow-[0_0_16px_rgba(255,255,255,0.72)] ${
               isRecordingVocals || vocalCountdown !== null
                 ? "border-red-400 bg-red-500 text-white hover:bg-red-600"
                 : "border-slate-300/80 bg-white/75 text-slate-800 hover:bg-white dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700/80"
@@ -637,7 +637,7 @@ export function PianoRoll({
           <div className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Vocal Clip</div>
           <button
             type="button"
-            className="w-full rounded-md border border-red-300 bg-red-500/90 px-2 py-1.5 text-left text-xs font-semibold text-white transition-colors hover:bg-red-600"
+            className="w-full rounded-md border border-red-300 bg-red-500/90 px-2 py-1.5 text-left text-xs font-semibold text-white transition-all duration-200 hover:bg-red-600 hover:shadow-[0_0_16px_rgba(255,120,120,0.75)]"
             onClick={() => {
               setProject((p) => {
                 const tracks = p.audioTracks.length > 0 ? p.audioTracks : [{ id: crypto.randomUUID(), name: "Mic", clips: [] }];

@@ -28,13 +28,13 @@ export function EditorHeader({
         <button
           type="button"
           onClick={onSave}
-          className="rounded-lg border border-white/70 bg-white/70 px-4 py-2 text-sm text-slate-800 transition-colors hover:bg-white dark:border-white/15 dark:bg-slate-800/60 dark:text-slate-100 dark:hover:bg-slate-700/70"
+          className="rounded-lg border border-white/70 bg-white/70 px-4 py-2 text-sm text-slate-800 transition-all duration-200 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.7)] dark:border-white/15 dark:bg-slate-800/60 dark:text-slate-100 dark:hover:bg-slate-700/70 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
         >
           Save
         </button>
         <Link
           href="/dashboard"
-          className="rounded-lg border border-white/70 bg-white/70 px-4 py-2 text-sm text-slate-800 transition-colors hover:bg-white dark:border-white/15 dark:bg-slate-800/60 dark:text-slate-100 dark:hover:bg-slate-700/70"
+          className="rounded-lg border border-white/70 bg-white/70 px-4 py-2 text-sm text-slate-800 transition-all duration-200 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.7)] dark:border-white/15 dark:bg-slate-800/60 dark:text-slate-100 dark:hover:bg-slate-700/70 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
         >
           Back to Dashboard
         </Link>

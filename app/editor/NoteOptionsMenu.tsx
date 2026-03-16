@@ -96,14 +96,14 @@ export function NoteOptionsMenu({
       <div className="flex gap-2">
         <button
           type="button"
-          className="rounded border px-2 py-1 text-xs"
+          className="rounded border px-2 py-1 text-xs transition-all duration-200 hover:shadow-[0_0_14px_rgba(255,255,255,0.7)]"
           onClick={onClose}
         >
           Close
         </button>
         <button
           type="button"
-          className="rounded bg-red-600 px-2 py-1 text-xs text-white"
+          className="rounded bg-red-600 px-2 py-1 text-xs text-white transition-all duration-200 hover:bg-red-500 hover:shadow-[0_0_16px_rgba(255,120,120,0.75)]"
           onClick={() => {
             onDelete(note.id);
             onClose();
