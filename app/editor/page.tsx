@@ -20,7 +20,7 @@ import { PianoRoll } from "./PianoRoll";
 import { DrumSequencer } from "./DrumSequencer";
 import { NoteOptionsMenu } from "./NoteOptionsMenu";
 import { supabase } from "@/lib/supabase";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 const ALL_KEYS = new Set<KeyRoot>([...ALL_MAJOR_KEYS, ...ALL_MINOR_KEYS]);
 const AUDIO_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_AUDIO_BUCKET || "audio-clips";
@@ -169,8 +169,10 @@ function normalizeLoadedProject(
 }
 
 export default function EditorPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const songIdFromUrl = searchParams.get("id");
+  const lastSavedSnapshotRef = useRef("");
   
   useEffect(() => {
     async function loadSong() {
@@ -187,6 +189,7 @@ export default function EditorPage() {
       setSongId(data.id);
       const loaded = normalizeLoadedProject(data);
       setProject(loaded);
+      lastSavedSnapshotRef.current = JSON.stringify(loaded);
       setBpmText(String(loaded.bpm));
       setBarsText(String(loaded.bars));
       setLowOctaveText(String(loaded.lowOctave));
@@ -233,6 +236,8 @@ export default function EditorPage() {
   const [defaultInstrument, setDefaultInstrument] = useState<MelodyInstrument>("Triangle");
   const [noteMenu, setNoteMenu] = useState<NoteMenuState | null>(null);
   const [songId, setSongId] = useState<string | null>(null);
+  const projectSnapshot = useMemo(() => JSON.stringify(project), [project]);
+  const hasUnsavedChanges = projectSnapshot !== lastSavedSnapshotRef.current;
 
   const signatureNotesRef = useRef<Record<string, NoteEvent[]>>({});
 
@@ -859,6 +864,9 @@ export default function EditorPage() {
 
     console.log("update data:", data);
     console.log("update error:", error);
+    if (!error) {
+      lastSavedSnapshotRef.current = JSON.stringify(project);
+    }
 
   } else {
     console.log("RUNNING INSERT");
@@ -884,9 +892,54 @@ export default function EditorPage() {
     if (data) {
       console.log("setting songId to:", data.id);
       setSongId(data.id);
+      lastSavedSnapshotRef.current = JSON.stringify(project);
     }
   }
 };
+
+  const handleExport = () => {
+    const payload = {
+      id: project.id,
+      name: project.name,
+      bpm: project.bpm,
+      exported_at: new Date().toISOString(),
+      project_data: project,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const safeName = (project.name || "melodica-project")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "melodica-project";
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${safeName}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleBackToDashboard = () => {
+    if (hasUnsavedChanges) {
+      const confirmed = window.confirm(
+        "You have unsaved changes. Leave editor without saving?"
+      );
+      if (!confirmed) return;
+    }
+    router.push("/dashboard");
+  };
+
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasUnsavedChanges]);
 
 
   // Convert a click on the ruler (which is already visually scrolled via CSS transform)
@@ -1221,6 +1274,8 @@ export default function EditorPage() {
     <main className="flex h-screen flex-col bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#3a4654_0%,#2b3440_55%,#212833_100%)]">
       <EditorHeader
         onSave={handleSave}
+        onExport={handleExport}
+        onBackToDashboard={handleBackToDashboard}
         projectName={project.name}
         onProjectNameChange={(name) =>
           setProject((p) => ({

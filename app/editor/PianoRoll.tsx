@@ -106,9 +106,17 @@ export function PianoRoll({
     edge: "left" | "right";
     anchorStep16: number;
   };
+  type MicInputMenuState = {
+    x: number;
+    y: number;
+  };
 
   const [vocalMenu, setVocalMenu] = useState<VocalMenuState | null>(null);
+  const [micInputMenu, setMicInputMenu] = useState<MicInputMenuState | null>(null);
   const vocalMenuRef = useRef<HTMLDivElement | null>(null);
+  const micInputMenuRef = useRef<HTMLDivElement | null>(null);
+  const micButtonRef = useRef<HTMLButtonElement | null>(null);
+  const micClickTimeoutRef = useRef<number | null>(null);
   const vocalResizeRef = useRef<VocalResizeState | null>(null);
   const melodicPitches = pitches.length > 1 ? pitches.slice(0, -1) : pitches;
   const micTrack = project.audioTracks[0];
@@ -145,6 +153,36 @@ export function PianoRoll({
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [vocalMenu]);
+
+  useEffect(() => {
+    if (!micInputMenu) return;
+
+    const onMouseDown = (event: MouseEvent) => {
+      if (!micInputMenuRef.current) return;
+      if (micInputMenuRef.current.contains(event.target as Node)) return;
+      if (micButtonRef.current?.contains(event.target as Node)) return;
+      setMicInputMenu(null);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMicInputMenu(null);
+    };
+
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [micInputMenu]);
+
+  useEffect(() => {
+    return () => {
+      if (micClickTimeoutRef.current !== null) {
+        window.clearTimeout(micClickTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const onMouseUp = () => {
@@ -212,26 +250,52 @@ export function PianoRoll({
     };
   }, [gridBeats, noteScrollRef, setProject]);
 
+  const handleMicButtonClick = () => {
+    if (micClickTimeoutRef.current !== null) {
+      window.clearTimeout(micClickTimeoutRef.current);
+    }
+    micClickTimeoutRef.current = window.setTimeout(() => {
+      void onToggleVocalRecording();
+      micClickTimeoutRef.current = null;
+    }, 220);
+  };
+
+  const handleMicButtonDoubleClick = () => {
+    if (micClickTimeoutRef.current !== null) {
+      window.clearTimeout(micClickTimeoutRef.current);
+      micClickTimeoutRef.current = null;
+    }
+    const rect = micButtonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const menuWidth = 230;
+    const menuHeight = 120;
+    const x = Math.min(rect.right + 10, window.innerWidth - menuWidth - 12);
+    const y = Math.min(rect.bottom + 8, window.innerHeight - menuHeight - 12);
+    setMicInputMenu({ x, y });
+  };
+
   return (
     <div className="mx-4 mb-2 mt-2 flex-1 overflow-auto rounded-2xl border border-white/60 bg-white/50 shadow-xl shadow-slate-300/15 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/35 dark:shadow-black/20">
-      <div className="flex flex-row pt-2 pb-2 pl-1 text-sm">
+      <div className="flex flex-row pt-2 pb-2 pl-2 text-sm">
         <div className="mr-2 flex shrink-0 flex-col">
-          <div className="h-8 mb-1" />
-          <ul className="flex w-14 list-none flex-col items-center gap-0.5 rounded-md px-1 py-0 text-lg">
+          <div className="mb-1 h-8" />
+          <ul className="flex w-14 list-none flex-col items-center gap-0.5 rounded-md px-0 py-0 text-lg">
             {melodicPitches.map((pitch) => (
               <li
                 key={pitch}
-                className="flex items-center justify-center rounded-lg border border-slate-500 bg-slate-700 px-1 text-sm text-white dark:border-slate-500 dark:bg-slate-700"
-                style={{ height: CELL_H, minHeight: CELL_H }}
+                className="flex w-full items-center justify-center rounded-lg border border-slate-500 bg-slate-700 px-1 text-sm text-white dark:border-slate-500 dark:bg-slate-700"
+                style={{ height: CELL_H - 2, minHeight: CELL_H - 2 }}
               >
                 {pitch}
               </li>
             ))}
           </ul>
           <button
+            ref={micButtonRef}
             type="button"
-            onClick={() => void onToggleVocalRecording()}
-            className={`mt-1 flex items-center justify-center rounded-lg border text-xs font-semibold transition-all duration-200 hover:shadow-[0_0_16px_rgba(255,255,255,0.72)] ${
+            onClick={handleMicButtonClick}
+            onDoubleClick={handleMicButtonDoubleClick}
+            className={`mt-0.5 flex w-full items-center justify-center rounded-lg border text-xs font-semibold transition-all duration-200 hover:shadow-[0_0_16px_rgba(255,255,255,0.72)] ${
               isRecordingVocals || vocalCountdown !== null
                 ? "border-red-400 bg-red-500 text-white hover:bg-red-600"
                 : "border-slate-500 bg-slate-700 text-white hover:bg-slate-600 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600"
@@ -244,19 +308,6 @@ export function PianoRoll({
                 ? "Stop Vox"
                 : "Mic"}
           </button>
-          <select
-            value={selectedAudioInputId}
-            onChange={(e) => onSelectedAudioInputIdChange(e.target.value)}
-            className="mt-1 h-8 w-14 rounded-lg border border-slate-500 bg-slate-700 px-1 text-[10px] text-white dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100"
-            title="Vocal input device"
-          >
-            <option value="default">Default</option>
-            {audioInputDevices.map((device) => (
-              <option key={device.deviceId} value={device.deviceId}>
-                {device.label || `Mic ${device.deviceId.slice(0, 4)}`}
-              </option>
-            ))}
-          </select>
         </div>
 
         <div className="w-full min-w-0">
@@ -659,6 +710,28 @@ export function PianoRoll({
           >
             Delete Clip
           </button>
+        </div>
+      )}
+      {micInputMenu && (
+        <div
+          ref={micInputMenuRef}
+          className="fixed z-[80] w-56 rounded-xl border border-slate-300/70 bg-white/90 p-2 shadow-xl backdrop-blur-md dark:border-white/15 dark:bg-slate-900/90"
+          style={{ left: micInputMenu.x, top: micInputMenu.y }}
+        >
+          <div className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Mic Input</div>
+          <select
+            value={selectedAudioInputId}
+            onChange={(e) => onSelectedAudioInputIdChange(e.target.value)}
+            className="h-8 w-full rounded-lg border border-slate-300/80 bg-white/90 px-2 text-xs text-slate-800 dark:border-white/15 dark:bg-slate-700/60 dark:text-slate-100"
+            title="Vocal input device"
+          >
+            <option value="default">System Default</option>
+            {audioInputDevices.map((device) => (
+              <option key={device.deviceId} value={device.deviceId}>
+                {device.label || `Mic ${device.deviceId.slice(0, 6)}`}
+              </option>
+            ))}
+          </select>
         </div>
       )}
     </div>

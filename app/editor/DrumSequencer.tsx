@@ -105,11 +105,11 @@ export function DrumSequencer({
     >
       <div className="mb-2 text-sm font-medium">Drums</div>
       <div className="flex gap-2">
-        <div className="w-14 space-y-0.5">
+        <div className="w-14">
           {project.drumTracks.map((track) => (
             <button
               key={track.id}
-              className="block h-6 w-full truncate rounded-lg border border-slate-500 bg-slate-700 px-1 text-[10px] text-white transition-all duration-200 hover:bg-slate-600 hover:shadow-[0_0_12px_rgba(255,255,255,0.6)] dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 dark:hover:shadow-[0_0_12px_rgba(255,255,255,0.35)]"
+              className="h-[25.5px] w-full truncate rounded-md border border-white/65 bg-white/40 px-1 text-[10px] text-slate-800 backdrop-blur-md transition-all duration-200 hover:bg-white/55 hover:shadow-[0_0_12px_rgba(255,255,255,0.7)] dark:border-white/25 dark:bg-slate-700/35 dark:text-slate-100 dark:hover:bg-slate-700/55 dark:hover:shadow-[0_0_12px_rgba(255,255,255,0.35)]"
               type="button"
               onDoubleClick={(e) => {
                 if (!containerRef.current) return;
@@ -165,7 +165,7 @@ export function DrumSequencer({
                     return (
                       <button
                         key={`${track.id}-${step}`}
-                        className={`h-6 transition-colors border-t-[1.5px] border-b-[1.5px] border-neutral-500/80 dark:border-neutral-500/80 ${
+                        className={`h-[27px] transition-colors border-t-[1.5px] border-b-[1.5px] border-neutral-400/80 dark:border-neutral-600/80 ${
                           hit ? "bg-emerald-500 hover:bg-emerald-600" : ""
                         } ${
                           !hit
@@ -177,8 +177,8 @@ export function DrumSequencer({
                         style={{
                           width: DRUM_CELL_W,
                           borderLeft: isQuarterStart
-                            ? "2.5px solid rgba(120,120,120,0.72)"
-                            : "1.5px solid rgba(120,120,120,0.45)",
+                            ? "2px solid rgba(120,120,120,0.62)"
+                            : "1.5px solid rgba(120,120,120,0.42)",
                         }}
                         onClick={() => {
                           setProject((p) => ({
@@ -234,7 +234,7 @@ export function DrumSequencer({
         <div className="w-14 shrink-0" />
         <button
           type="button"
-          className="h-8 w-full rounded-xl border border-white/65 bg-white/45 text-lg font-semibold text-slate-700 backdrop-blur-md transition-all duration-200 hover:bg-white/60 hover:shadow-[0_0_18px_rgba(255,255,255,0.72)] dark:border-white/20 dark:bg-slate-700/40 dark:text-slate-100 dark:hover:bg-slate-700/60 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
+          className="h-8 w-full rounded-lg border border-white/65 bg-white/45 text-lg font-semibold text-slate-700 backdrop-blur-md transition-all duration-200 hover:bg-white/60 hover:shadow-[0_0_18px_rgba(255,255,255,0.72)] dark:border-white/20 dark:bg-slate-700/40 dark:text-slate-100 dark:hover:bg-slate-700/60 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
           onClick={() =>
             setProject((p) => ({
               ...p,
@@ -267,7 +267,7 @@ export function DrumSequencer({
                   <button
                     key={`${drum}-${variant}`}
                     type="button"
-                    className={`w-full rounded-md border text-left text-xs transition-all duration-150 ${
+                    className={`w-full rounded-md border px-2 py-1 text-left text-xs transition-all duration-150 ${
                       isSelected
                         ? "border-emerald-400 bg-emerald-500/20 text-emerald-700 dark:text-emerald-200"
                         : "border-white/60 bg-white/40 text-slate-800 backdrop-blur-md hover:bg-white/55 hover:shadow-[0_0_12px_rgba(255,255,255,0.7)] dark:border-white/20 dark:bg-slate-800/45 dark:text-slate-100 dark:hover:bg-slate-700/65 dark:hover:shadow-[0_0_12px_rgba(255,255,255,0.35)]"

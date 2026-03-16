@@ -6,6 +6,74 @@ import type { KeyRoot, ScaleFamily } from "@/lib/pitches";
 import type { Project, MelodyInstrument } from "@/types/project";
 import { NOTE_STEPS_PER_BAR, DRUM_STEPS_PER_BAR, MELODY_INSTRUMENTS } from "./constants";
 
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+type SettingDialProps = {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  decimals?: number;
+  onChange: (value: number) => void;
+};
+
+function SettingDial({
+  label,
+  value,
+  min,
+  max,
+  step,
+  decimals = 2,
+  onChange,
+}: SettingDialProps) {
+  const percent = (value - min) / (max - min || 1);
+  const angle = -135 + percent * 270;
+  const display = value.toFixed(decimals);
+
+  const onMouseDown = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startValue = value;
+    const range = max - min;
+    const sensitivity = 180;
+    const onMove = (moveEvent: MouseEvent) => {
+      const dy = startY - moveEvent.clientY;
+      const raw = startValue + (dy / sensitivity) * range;
+      const stepped = Math.round(raw / step) * step;
+      const rounded = Number(stepped.toFixed(6));
+      onChange(clamp(rounded, min, max));
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <button
+        type="button"
+        onMouseDown={onMouseDown}
+        className="relative h-14 w-14 rounded-full border border-white/70 bg-white/70 shadow-sm transition-all duration-150 hover:shadow-[0_0_16px_rgba(255,255,255,0.72)] dark:border-white/15 dark:bg-slate-700/50 dark:hover:shadow-[0_0_16px_rgba(255,255,255,0.35)]"
+        title={`${label}: ${display}`}
+      >
+        <div className="absolute inset-1 rounded-full bg-slate-200/85 dark:bg-slate-800/85" />
+        <div
+          className="absolute left-1/2 top-1/2 h-4 w-1.5 -translate-x-1/2 -translate-y-[95%] rounded-full bg-slate-700 dark:bg-slate-100"
+          style={{ transform: `translate(-50%, -95%) rotate(${angle}deg)`, transformOrigin: "50% 170%" }}
+        />
+      </button>
+      <div className="text-[11px] font-medium leading-none">{label}</div>
+      <div className="text-[10px] opacity-80 leading-none">{display}</div>
+    </div>
+  );
+}
+
 export interface EditorToolbarProps {
   project: Project;
   setProject: React.Dispatch<React.SetStateAction<Project>>;
@@ -293,20 +361,52 @@ export function EditorToolbar({
         />
       </div>
 
-      <div>
-        <span className="font-medium">Master Volume:</span>{" "}
-        {project.settings.masterVolume}
-      </div>
-      <div>
-        <span className="font-medium">Reverb Wet:</span>{" "}
-        {project.settings.reverbWet}
-      </div>
-      <div>
-        <span className="font-medium">Reverb Decay:</span>{" "}
-        {project.settings.reverbDecay}
-      </div>
-      <div>
-        <span className="font-medium">Notes:</span> {project.notes.length}
+      <div className="flex items-end gap-3">
+        <SettingDial
+          label="Master"
+          value={project.settings.masterVolume}
+          min={0}
+          max={1}
+          step={0.01}
+          decimals={2}
+          onChange={(next) =>
+            setProject((p) => ({
+              ...p,
+              settings: { ...p.settings, masterVolume: next },
+              updatedAt: Date.now(),
+            }))
+          }
+        />
+        <SettingDial
+          label="Wet"
+          value={project.settings.reverbWet}
+          min={0}
+          max={1}
+          step={0.01}
+          decimals={2}
+          onChange={(next) =>
+            setProject((p) => ({
+              ...p,
+              settings: { ...p.settings, reverbWet: next },
+              updatedAt: Date.now(),
+            }))
+          }
+        />
+        <SettingDial
+          label="Decay"
+          value={project.settings.reverbDecay}
+          min={0.2}
+          max={10}
+          step={0.1}
+          decimals={1}
+          onChange={(next) =>
+            setProject((p) => ({
+              ...p,
+              settings: { ...p.settings, reverbDecay: next },
+              updatedAt: Date.now(),
+            }))
+          }
+        />
       </div>
 
       <div className="flex items-center gap-3">
