@@ -215,13 +215,13 @@ export function PianoRoll({
   return (
     <div className="mx-4 mb-2 mt-2 flex-1 overflow-auto rounded-2xl border border-white/60 bg-white/50 shadow-xl shadow-slate-300/15 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/35 dark:shadow-black/20">
       <div className="flex flex-row pt-2 pb-2 pl-1 text-sm">
-        <div className="flex flex-col mr-2 shrink-0">
+        <div className="mr-2 flex shrink-0 flex-col">
           <div className="h-8 mb-1" />
-          <ul className="w-14 items-center flex flex-col py-0 px-1 rounded-md text-lg list-none">
+          <ul className="flex w-14 list-none flex-col items-center gap-0.5 rounded-md px-1 py-0 text-lg">
             {melodicPitches.map((pitch) => (
               <li
                 key={pitch}
-                className="flex items-center pr-2 pl-2 rounded-md border"
+                className="flex items-center justify-center rounded-lg border border-slate-500 bg-slate-700 px-1 text-sm text-white dark:border-slate-500 dark:bg-slate-700"
                 style={{ height: CELL_H, minHeight: CELL_H }}
               >
                 {pitch}
@@ -231,10 +231,10 @@ export function PianoRoll({
           <button
             type="button"
             onClick={() => void onToggleVocalRecording()}
-            className={`mt-1 flex items-center justify-center rounded-md border text-xs font-semibold transition-all duration-200 hover:shadow-[0_0_16px_rgba(255,255,255,0.72)] ${
+            className={`mt-1 flex items-center justify-center rounded-lg border text-xs font-semibold transition-all duration-200 hover:shadow-[0_0_16px_rgba(255,255,255,0.72)] ${
               isRecordingVocals || vocalCountdown !== null
                 ? "border-red-400 bg-red-500 text-white hover:bg-red-600"
-                : "border-slate-300/80 bg-white/75 text-slate-800 hover:bg-white dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700/80"
+                : "border-slate-500 bg-slate-700 text-white hover:bg-slate-600 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600"
             }`}
             style={{ height: CELL_H, minHeight: CELL_H }}
           >
@@ -247,7 +247,7 @@ export function PianoRoll({
           <select
             value={selectedAudioInputId}
             onChange={(e) => onSelectedAudioInputIdChange(e.target.value)}
-            className="mt-1 h-8 w-14 rounded-md border border-slate-300/80 bg-white/80 px-1 text-[10px] text-slate-700 dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100"
+            className="mt-1 h-8 w-14 rounded-lg border border-slate-500 bg-slate-700 px-1 text-[10px] text-white dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100"
             title="Vocal input device"
           >
             <option value="default">Default</option>
@@ -269,7 +269,7 @@ export function PianoRoll({
                 {playheadIndicatorLabel}
               </div>
             )}
-            <div className="relative h-8 overflow-hidden rounded-sm bg-slate-500/70 dark:bg-slate-700/80">
+            <div className="relative h-8 overflow-hidden rounded-lg bg-slate-500/70 dark:bg-slate-700/80">
               <div
                 ref={rulerRef}
                 className="relative h-8 select-none"
@@ -326,7 +326,7 @@ export function PianoRoll({
               style={{ left: notePlayheadPx }}
             />
             <div
-              className="rounded-sm bg-slate-400/45 dark:bg-slate-800/50"
+              className="rounded-lg bg-slate-400/45 dark:bg-slate-800/50"
               style={{ width: gridBeats * CELL_W }}
             >
               {melodicPitches.map((pitch) => (
@@ -378,7 +378,7 @@ export function PianoRoll({
                           key={`${pitch}-${beat}`}
                           type="button"
                           aria-label={`${pitch} beat ${beat} ${filled ? "on" : "off"}`}
-                          className={`rounded-sm p-0 cursor-pointer transition-colors border border-neutral-400 dark:border-neutral-600 ${
+                          className={`rounded-md p-0 cursor-pointer transition-colors border-[1.5px] border-neutral-500/75 dark:border-neutral-500/75 ${
                             filled && isNoteEnd
                               ? "cursor-e-resize"
                               : "cursor-pointer"
@@ -386,9 +386,9 @@ export function PianoRoll({
                             filled
                               ? filledClass
                               : isAltBar
-                                ? "bg-neutral-300 dark:bg-neutral-800 hover:bg-neutral-400 dark:hover:bg-neutral-700"
-                                : "bg-neutral-200 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800"
-                          } ${filled ? "rounded-none" : ""}`}
+                              ? "bg-neutral-300 dark:bg-neutral-800 hover:bg-neutral-400 dark:hover:bg-neutral-700"
+                              : "bg-neutral-200 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800"
+                          }`}
                           style={{
                             width: CELL_W,
                             height: CELL_H,
@@ -397,9 +397,9 @@ export function PianoRoll({
                             borderTopRightRadius: isNoteEnd ? 4 : 0,
                             borderBottomRightRadius: isNoteEnd ? 4 : 0,
                             borderLeftWidth:
-                              isContinuation && !isNoteStart ? 0 : 1,
+                              isContinuation && !isNoteStart ? 0 : 1.5,
                             borderRightWidth:
-                              isContinuation && !isNoteEnd ? 0 : 1,
+                              isContinuation && !isNoteEnd ? 0 : 1.5,
                           }}
                           onMouseDown={(e) => {
                             clearPendingNoteDelete();
@@ -554,7 +554,7 @@ export function PianoRoll({
                     return (
                       <div
                         key={`mic-${beat}`}
-                        className={`border border-neutral-400 dark:border-neutral-600 ${
+                        className={`rounded-md border-[1.5px] border-neutral-500/75 dark:border-neutral-500/75 ${
                           clipInCell
                             ? recordingClip && clipInCell === recordingClip
                               ? "bg-red-500/75"
@@ -570,8 +570,8 @@ export function PianoRoll({
                           borderBottomLeftRadius: isClipStart ? 4 : 0,
                           borderTopRightRadius: isClipEnd ? 4 : 0,
                           borderBottomRightRadius: isClipEnd ? 4 : 0,
-                          borderLeftWidth: clipInCell && !isClipStart ? 0 : 1,
-                          borderRightWidth: clipInCell && !isClipEnd ? 0 : 1,
+                          borderLeftWidth: clipInCell && !isClipStart ? 0 : 1.5,
+                          borderRightWidth: clipInCell && !isClipEnd ? 0 : 1.5,
                         }}
                         onMouseDown={(e) => {
                           if (!persistedClipInCell) return;

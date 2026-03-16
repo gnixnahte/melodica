@@ -7,6 +7,15 @@ import { CELL_W, DRUM_STEPS_PER_BAR, DRUM_STEPS_PER_BEAT } from "./constants";
 const DRUM_CELL_W = CELL_W / 2;
 const DRUM_TYPES = ["kick", "snare", "hat", "tom"] as const;
 const VARIANTS = [0, 1, 2] as const;
+type DrumType = (typeof DRUM_TYPES)[number];
+type DrumVariant = (typeof VARIANTS)[number];
+
+function formatDrumLabel(
+  drum: DrumType,
+  variant: DrumVariant
+) {
+  return `${drum[0].toUpperCase()}${drum.slice(1)} ${variant + 1}`;
+}
 
 export interface DrumSequencerProps {
   project: Project;
@@ -41,13 +50,14 @@ export function DrumSequencer({
     y: number;
   };
   const [drumMenu, setDrumMenu] = useState<DrumMenuState | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const drumMenuRef = useRef<HTMLDivElement | null>(null);
 
   const setTrackSound = (
     prev: Project,
     trackId: string,
-    drum: (typeof DRUM_TYPES)[number],
-    variant: number,
+    drum: DrumType,
+    variant: DrumVariant,
     updatedAt: number
   ) => ({
     ...prev,
@@ -89,30 +99,38 @@ export function DrumSequencer({
   }, [drumMenu]);
 
   return (
-    <div className="mx-4 mb-3 shrink-0 rounded-2xl border border-white/60 bg-white/50 p-2 shadow-xl shadow-slate-300/15 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/35 dark:shadow-black/20">
+    <div
+      ref={containerRef}
+      className="relative mx-4 mb-3 shrink-0 rounded-2xl border border-white/60 bg-white/50 p-2 shadow-xl shadow-slate-300/15 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/35 dark:shadow-black/20"
+    >
       <div className="mb-2 text-sm font-medium">Drums</div>
-
       <div className="flex gap-2">
-        <div className="w-14 shrink-0 space-y-2">
+        <div className="w-14 space-y-0.5">
           {project.drumTracks.map((track) => (
             <button
               key={track.id}
-              className="h-6 w-full truncate rounded-md border border-slate-300/80 bg-white/70 px-1 text-[10px] text-slate-800 transition-all duration-200 hover:bg-white hover:shadow-[0_0_12px_rgba(255,255,255,0.7)] dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700/80 dark:hover:shadow-[0_0_12px_rgba(255,255,255,0.35)]"
+              className="block h-6 w-full truncate rounded-lg border border-slate-500 bg-slate-700 px-1 text-[10px] text-white transition-all duration-200 hover:bg-slate-600 hover:shadow-[0_0_12px_rgba(255,255,255,0.6)] dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 dark:hover:shadow-[0_0_12px_rgba(255,255,255,0.35)]"
               type="button"
               onDoubleClick={(e) => {
+                if (!containerRef.current) return;
                 const menuWidth = 210;
-                const menuHeight = 240;
                 const rect = e.currentTarget.getBoundingClientRect();
-                const x = Math.min(rect.right + 8, window.innerWidth - menuWidth - 12);
-                const y = Math.max(
-                  12,
-                  Math.min(rect.top - 4, window.innerHeight - menuHeight - 12)
+                const containerRect = containerRef.current.getBoundingClientRect();
+                const buttonBottom = rect.bottom - containerRect.top;
+                const x = Math.max(
+                  8,
+                  Math.min(
+                    rect.right - containerRect.left + 8,
+                    containerRect.width - menuWidth - 8
+                  )
                 );
+                // Anchor to button bottom; actual bottom alignment uses CSS transform.
+                const y = Math.max(8, buttonBottom);
                 setDrumMenu({ trackId: track.id, x, y });
               }}
               title="Double-click for lane options"
             >
-              {track.drum}
+              {formatDrumLabel(track.drum, track.variant)}
             </button>
           ))}
         </div>
@@ -127,7 +145,7 @@ export function DrumSequencer({
             className="absolute top-0 bottom-0 w-[2px] bg-yellow-400 pointer-events-none z-20"
             style={{ left: currentStep16 * DRUM_CELL_W }}
           />
-          <div className="space-y-2" style={{ width: gridBeats * CELL_W }}>
+          <div style={{ width: gridBeats * CELL_W }}>
             {project.drumTracks.map((track) => (
               <div key={track.id} className="flex">
                 <div
@@ -147,7 +165,7 @@ export function DrumSequencer({
                     return (
                       <button
                         key={`${track.id}-${step}`}
-                        className={`h-6 transition-colors border-t border-b border-neutral-300 dark:border-neutral-700 ${
+                        className={`h-6 transition-colors border-t-[1.5px] border-b-[1.5px] border-neutral-500/80 dark:border-neutral-500/80 ${
                           hit ? "bg-emerald-500 hover:bg-emerald-600" : ""
                         } ${
                           !hit
@@ -159,8 +177,8 @@ export function DrumSequencer({
                         style={{
                           width: DRUM_CELL_W,
                           borderLeft: isQuarterStart
-                            ? "2px solid rgba(120,120,120,0.6)"
-                            : "1px solid rgba(120,120,120,0.25)",
+                            ? "2.5px solid rgba(120,120,120,0.72)"
+                            : "1.5px solid rgba(120,120,120,0.45)",
                         }}
                         onClick={() => {
                           setProject((p) => ({
@@ -216,15 +234,18 @@ export function DrumSequencer({
         <div className="w-14 shrink-0" />
         <button
           type="button"
-          className="h-8 w-full rounded-lg border border-white/70 bg-white/70 text-lg font-semibold text-slate-700 transition-all duration-200 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.72)] dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
+          className="h-8 w-full rounded-xl border border-white/65 bg-white/45 text-lg font-semibold text-slate-700 backdrop-blur-md transition-all duration-200 hover:bg-white/60 hover:shadow-[0_0_18px_rgba(255,255,255,0.72)] dark:border-white/20 dark:bg-slate-700/40 dark:text-slate-100 dark:hover:bg-slate-700/60 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
           onClick={() =>
             setProject((p) => ({
               ...p,
-              bars: Math.min(256, p.bars + 1),
+              drumTracks: [
+                ...p.drumTracks,
+                { id: crypto.randomUUID(), drum: "kick", variant: 0, hits: [] },
+              ],
               updatedAt: Date.now(),
             }))
           }
-          title="Add one bar"
+          title="Add one lane"
         >
           +
         </button>
@@ -232,7 +253,7 @@ export function DrumSequencer({
       {drumMenu && selectedTrack && (
         <div
           ref={drumMenuRef}
-          className="fixed z-[80] w-52 rounded-xl border border-white/70 bg-white/90 p-2 shadow-2xl shadow-slate-400/25 backdrop-blur-xl dark:border-white/15 dark:bg-slate-900/90 dark:shadow-black/30"
+          className="absolute z-[80] w-52 -translate-y-full rounded-xl border border-white/60 bg-white/50 p-2 shadow-2xl shadow-slate-400/25 backdrop-blur-xl dark:border-white/15 dark:bg-slate-900/55 dark:shadow-black/30"
           style={{ left: drumMenu.x, top: drumMenu.y }}
         >
           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
@@ -246,17 +267,17 @@ export function DrumSequencer({
                   <button
                     key={`${drum}-${variant}`}
                     type="button"
-                    className={`w-full rounded-md border px-2 py-1 text-left text-xs transition-all duration-150 ${
+                    className={`w-full rounded-md border text-left text-xs transition-all duration-150 ${
                       isSelected
                         ? "border-emerald-400 bg-emerald-500/20 text-emerald-700 dark:text-emerald-200"
-                        : "border-slate-300/80 bg-white/75 text-slate-800 hover:bg-white hover:shadow-[0_0_12px_rgba(255,255,255,0.7)] dark:border-white/15 dark:bg-slate-800/60 dark:text-slate-100 dark:hover:bg-slate-700/80 dark:hover:shadow-[0_0_12px_rgba(255,255,255,0.35)]"
+                        : "border-white/60 bg-white/40 text-slate-800 backdrop-blur-md hover:bg-white/55 hover:shadow-[0_0_12px_rgba(255,255,255,0.7)] dark:border-white/20 dark:bg-slate-800/45 dark:text-slate-100 dark:hover:bg-slate-700/65 dark:hover:shadow-[0_0_12px_rgba(255,255,255,0.35)]"
                     }`}
                     onClick={() => {
+                      onPreviewDrum(drum, variant, 0.9);
                       setProject((p) => setTrackSound(p, selectedTrack.id, drum, variant, Date.now()));
-                      setDrumMenu(null);
                     }}
                   >
-                    {`${drum[0].toUpperCase()}${drum.slice(1)} ${variant + 1}`}
+                    {formatDrumLabel(drum, variant)}
                   </button>
                 );
               })
