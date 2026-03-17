@@ -86,6 +86,24 @@ function normalizeSongProject(song: SongRow): Project {
         ? Math.max(1, Math.min(256, Math.round(raw.bars)))
         : base.bars,
     notes: Array.isArray(raw.notes) ? raw.notes : base.notes,
+    audioTracks: Array.isArray(raw.audioTracks)
+      ? raw.audioTracks.map((track) => ({
+          id:
+            typeof track.id === "string" && track.id.length > 0
+              ? track.id
+              : crypto.randomUUID(),
+          name: typeof track.name === "string" && track.name.length > 0 ? track.name : "Mic",
+          clips: Array.isArray(track.clips)
+            ? track.clips.filter(
+                (clip) =>
+                  typeof clip.id === "string" &&
+                  typeof clip.url === "string" &&
+                  Number.isFinite(clip.startStep16) &&
+                  Number.isFinite(clip.durationStep16)
+              )
+            : [],
+        }))
+      : base.audioTracks,
     drumTracks: Array.isArray(raw.drumTracks) ? raw.drumTracks : base.drumTracks,
     settings:
       raw.settings && typeof raw.settings === "object"
@@ -109,7 +127,22 @@ function getPlayableSteps16(project: Project) {
     .flatMap((track) => track.hits)
     .reduce((max, hit) => Math.max(max, hit.step + 1), 0);
 
-  const lastEventStepExclusive = Math.max(lastNoteStepExclusive, lastDrumStepExclusive);
+  const lastVocalStepExclusive = project.audioTracks
+    .flatMap((track) => track.clips)
+    .reduce(
+      (max, clip) =>
+        Math.max(
+          max,
+          Math.max(0, Math.floor(clip.startStep16)) + Math.max(1, Math.floor(clip.durationStep16))
+        ),
+      0
+    );
+
+  const lastEventStepExclusive = Math.max(
+    lastNoteStepExclusive,
+    lastDrumStepExclusive,
+    lastVocalStepExclusive
+  );
   return lastEventStepExclusive > 0
     ? lastEventStepExclusive
     : Math.max(1, project.bars * DRUM_STEPS_PER_BAR);
@@ -135,14 +168,24 @@ export default function DashboardPage() {
   const snareRef = useRef<Tone.NoiseSynth[]>([]);
   const hatRef = useRef<Tone.MetalSynth[]>([]);
   const tomRef = useRef<Tone.MembraneSynth[]>([]);
+  const playingVocalAudioRef = useRef<HTMLAudioElement[]>([]);
   const playbackStepRef = useRef(0);
   const totalStepsRef = useRef(1);
+
+  const stopAllVocalAudio = () => {
+    for (const audio of playingVocalAudioRef.current) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    playingVocalAudioRef.current = [];
+  };
 
   const clearPlayback = () => {
     if (scheduleIdRef.current !== null) {
       Tone.Transport.clear(scheduleIdRef.current);
       scheduleIdRef.current = null;
     }
+    stopAllVocalAudio();
     Tone.Transport.stop();
     Tone.Transport.cancel();
     Tone.Transport.position = 0;
@@ -295,6 +338,7 @@ export default function DashboardPage() {
     if (activeSongId === song.id) {
       if (isPlaying) {
         Tone.Transport.pause();
+        stopAllVocalAudio();
         setIsPlaying(false);
       } else {
         Tone.Transport.start();
@@ -342,6 +386,17 @@ export default function DashboardPage() {
         if (h.drum === "snare") snareRef.current[variant]?.triggerAttackRelease("16n", time, velocity);
         if (h.drum === "hat") hatRef.current[variant]?.triggerAttackRelease("16n", time, velocity);
         if (h.drum === "tom") tomRef.current[variant]?.triggerAttackRelease("G2", "16n", time, velocity);
+      }
+
+      const vocalClipsNow = project.audioTracks
+        .flatMap((track) => track.clips)
+        .filter((clip) => clip.startStep16 === step16);
+      for (const clip of vocalClipsNow) {
+        const audio = new Audio(clip.url);
+        audio.volume = Math.max(0, Math.min(1, clip.gain ?? 1));
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
+        playingVocalAudioRef.current.push(audio);
       }
 
       const isLastStep = step16 >= totalSteps16 - 1;
@@ -397,8 +452,8 @@ export default function DashboardPage() {
   }
   
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#ffffff_0%,#e8edf4_50%,#dfe6ef_100%)] p-8 dark:bg-[radial-gradient(circle_at_top,#3a4654_0%,#2b3440_55%,#212833_100%)]">
-      <div className="mx-auto max-w-5xl rounded-3xl border border-white/60 bg-white/50 p-6 shadow-2xl shadow-slate-400/20 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/35 dark:shadow-black/20">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#ffffff_0%,#e8edf4_50%,#dfe6ef_100%)] p-8 dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
+      <div className="mx-auto max-w-5xl rounded-3xl border border-white/60 bg-white/50 p-6 shadow-2xl shadow-slate-400/20 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
@@ -410,7 +465,7 @@ export default function DashboardPage() {
         <div className="flex gap-3">
           <Link
             href="/editor"
-            className="rounded-md border border-white/70 bg-white/70 px-4 py-2 text-sm text-slate-800 shadow-sm backdrop-blur transition-all duration-200 hover:border-white/95 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:border-white/15 dark:bg-slate-800/60 dark:text-slate-100 dark:hover:bg-slate-700/70 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
+            className="rounded-md border border-white/70 bg-white/70 px-4 py-2 text-sm text-slate-800 shadow-sm backdrop-blur transition-all duration-200 hover:border-white/95 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:border-white/15 dark:bg-zinc-800/60 dark:text-slate-100 dark:hover:bg-zinc-700/70 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
           >
             New Project
           </Link>
@@ -428,7 +483,7 @@ export default function DashboardPage() {
 
         <div className="mt-3 space-y-3">
           {songs.length === 0 ? (
-            <div className="rounded-xl border border-white/60 bg-white/55 p-4 text-sm opacity-80 backdrop-blur dark:border-white/10 dark:bg-slate-800/40">
+            <div className="rounded-xl border border-white/60 bg-white/55 p-4 text-sm opacity-80 backdrop-blur dark:border-white/10 dark:bg-zinc-800/40">
               No projects yet. Click <span className="font-medium">New Project</span> to start.
             </div>
           ) : (
@@ -443,7 +498,7 @@ export default function DashboardPage() {
                 return (
               <div
                 key={song.id}
-                className="rounded-xl border border-white/60 bg-white/55 p-4 backdrop-blur dark:border-white/10 dark:bg-slate-800/40"
+                className="rounded-xl border border-white/60 bg-white/55 p-4 backdrop-blur dark:border-white/10 dark:bg-zinc-800/40"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
@@ -473,13 +528,13 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => void handlePlayPause(song)}
-                      className="rounded-md border border-slate-300/80 bg-white/70 px-3 py-1 text-sm text-slate-800 transition-all duration-200 hover:border-white/95 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
+                      className="rounded-md border border-slate-300/80 bg-white/70 px-3 py-1 text-sm text-slate-800 transition-all duration-200 hover:border-white/95 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:border-white/15 dark:bg-zinc-700/50 dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
                     >
                       {activeSongId === song.id && isPlaying ? "Pause" : "Play"}
                     </button>
                     <button
                       onClick={() => router.push(`/editor?id=${song.id}`)}
-                      className="rounded-md border border-slate-300/80 bg-white/70 px-3 py-1 text-sm text-slate-800 transition-all duration-200 hover:border-white/95 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
+                      className="rounded-md border border-slate-300/80 bg-white/70 px-3 py-1 text-sm text-slate-800 transition-all duration-200 hover:border-white/95 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:border-white/15 dark:bg-zinc-700/50 dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
                     >
                       Open
                     </button>

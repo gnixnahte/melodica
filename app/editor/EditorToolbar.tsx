@@ -59,10 +59,10 @@ function SettingDial({
       <button
         type="button"
         onMouseDown={onMouseDown}
-        className="relative h-14 w-14 rounded-full border border-white/70 bg-white/70 shadow-sm transition-all duration-150 hover:shadow-[0_0_16px_rgba(255,255,255,0.72)] dark:border-white/15 dark:bg-slate-700/50 dark:hover:shadow-[0_0_16px_rgba(255,255,255,0.35)]"
+        className="relative h-14 w-14 rounded-full border border-white/70 bg-white/70 shadow-sm transition-all duration-150 hover:shadow-[0_0_16px_rgba(255,255,255,0.72)] dark:border-white/15 dark:bg-zinc-700/50 dark:hover:shadow-[0_0_16px_rgba(255,255,255,0.35)]"
         title={`${label}: ${display}`}
       >
-        <div className="absolute inset-1 rounded-full bg-slate-200/85 dark:bg-slate-800/85" />
+        <div className="absolute inset-1 rounded-full bg-slate-200/85 dark:bg-zinc-800/85" />
         <div
           className="absolute left-1/2 top-1/2 h-4 w-1.5 -translate-x-1/2 -translate-y-[95%] rounded-full bg-slate-700 dark:bg-slate-100"
           style={{ transform: `translate(-50%, -95%) rotate(${angle}deg)`, transformOrigin: "50% 170%" }}
@@ -122,7 +122,7 @@ export function EditorToolbar({
   setNotesMuted,
 }: EditorToolbarProps) {
   return (
-    <div className="mx-4 mt-4 flex flex-row flex-wrap items-center justify-evenly gap-x-4 gap-y-2 rounded-2xl border border-white/60 bg-white/50 p-4 text-sm shadow-xl shadow-slate-300/20 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/35 dark:shadow-black/20">
+    <div className="mx-4 mt-4 flex flex-row flex-wrap items-center justify-evenly gap-x-4 gap-y-2 rounded-2xl border border-white/60 bg-white/50 p-4 text-sm shadow-xl shadow-slate-300/20 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20">
       <div>
         <span className="font-medium">BPM:</span>
         <input
@@ -220,7 +220,7 @@ export function EditorToolbar({
       <div className="flex items-center gap-2">
         <span className="font-medium">Scale:</span>
         <select
-          className="w-fit rounded-md border border-slate-300/70 bg-white/70 px-2 py-0.5 text-sm dark:border-white/15 dark:bg-slate-800/60"
+          className="w-fit rounded-md border border-slate-300/70 bg-white/70 px-2 py-0.5 text-sm dark:border-white/15 dark:bg-zinc-800/60"
           value={project.scaleFamily}
           onChange={(e) => handleScaleFamilyChange(e.target.value as ScaleFamily)}
         >
@@ -451,7 +451,7 @@ export function EditorToolbar({
           className={`rounded-full px-4 py-2 text-xs font-semibold transition-all duration-200 ${
             notesMuted
               ? "border border-amber-300/80 bg-amber-500/85 text-white hover:bg-amber-500 hover:shadow-[0_0_18px_rgba(255,255,255,0.72)]"
-              : "border border-white/70 bg-white/70 text-slate-800 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.72)] dark:border-white/15 dark:bg-slate-700/50 dark:text-slate-100 dark:hover:bg-slate-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
+              : "border border-white/70 bg-white/70 text-slate-800 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.72)] dark:border-white/15 dark:bg-zinc-700/50 dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
           }`}
         >
           {notesMuted ? "Unmute Notes" : "Mute Notes"}
@@ -468,7 +468,7 @@ export function EditorToolbar({
             className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 hover:shadow-[0_0_16px_rgba(255,255,255,0.7)] ${
               metronomeOn
                 ? "bg-emerald-500"
-                : "bg-neutral-200 dark:bg-neutral-600"
+                : "bg-neutral-200 dark:bg-zinc-600"
             }`}
           >
             <span

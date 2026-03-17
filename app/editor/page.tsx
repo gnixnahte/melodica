@@ -24,6 +24,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 const ALL_KEYS = new Set<KeyRoot>([...ALL_MAJOR_KEYS, ...ALL_MINOR_KEYS]);
 const AUDIO_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_AUDIO_BUCKET || "audio-clips";
+const MELODY_INSTRUMENT_GAIN_DB: Record<MelodyInstrument, number> = {
+  Triangle: 1,
+  Saw: -6,
+  Square: -7,
+  "FM Bell": 3,
+  "AM Pad": 2,
+  "Duo Lead": -3,
+};
 
 function getBestRecorderMimeType() {
   const candidates = [
@@ -769,6 +777,8 @@ export default function EditorPage() {
     if (existing) return existing;
 
     const created = createMelodySynthPreset(normalized);
+    // Level-match presets so different timbres feel closer in loudness.
+    created.volume.value = MELODY_INSTRUMENT_GAIN_DB[normalized];
     synthBankRef.current.set(normalized, created);
     return created;
   };
@@ -1271,7 +1281,7 @@ export default function EditorPage() {
   }, [isPlaying, isRecordingVocals]);
 
   return (
-    <main className="flex h-screen flex-col bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#3a4654_0%,#2b3440_55%,#212833_100%)]">
+    <main className="flex h-screen flex-col bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
       <EditorHeader
         onSave={handleSave}
         onExport={handleExport}

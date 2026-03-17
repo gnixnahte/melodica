@@ -275,7 +275,7 @@ export function PianoRoll({
   };
 
   return (
-    <div className="mx-4 mb-2 mt-2 flex-1 overflow-auto rounded-2xl border border-white/60 bg-white/50 shadow-xl shadow-slate-300/15 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/35 dark:shadow-black/20">
+    <div className="mx-4 mb-2 mt-2 flex-1 overflow-auto rounded-2xl border border-white/60 bg-white/50 shadow-xl shadow-slate-300/15 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20">
       <div className="flex flex-row pt-2 pb-2 pl-2 text-sm">
         <div className="mr-2 flex shrink-0 flex-col">
           <div className="mb-1 h-8" />
@@ -283,7 +283,7 @@ export function PianoRoll({
             {melodicPitches.map((pitch) => (
               <li
                 key={pitch}
-                className="flex w-full items-center justify-center rounded-lg border border-slate-500 bg-slate-700 px-1 text-sm text-white dark:border-slate-500 dark:bg-slate-700"
+                className="flex w-full items-center justify-center rounded-lg border border-zinc-500 bg-zinc-700 px-1 text-sm text-white dark:border-zinc-500 dark:bg-zinc-700"
                 style={{ height: CELL_H - 2, minHeight: CELL_H - 2 }}
               >
                 {pitch}
@@ -298,7 +298,7 @@ export function PianoRoll({
             className={`mt-0.5 flex w-full items-center justify-center rounded-lg border text-xs font-semibold transition-all duration-200 hover:shadow-[0_0_16px_rgba(255,255,255,0.72)] ${
               isRecordingVocals || vocalCountdown !== null
                 ? "border-red-400 bg-red-500 text-white hover:bg-red-600"
-                : "border-slate-500 bg-slate-700 text-white hover:bg-slate-600 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600"
+                : "border-zinc-500 bg-zinc-700 text-white hover:bg-zinc-600 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600"
             }`}
             style={{ height: CELL_H, minHeight: CELL_H }}
           >
@@ -311,7 +311,7 @@ export function PianoRoll({
         </div>
 
         <div className="w-full min-w-0">
-          <div className="sticky top-0 z-30 mb-1 relative rounded-md bg-white/65 backdrop-blur-sm dark:bg-slate-900/50">
+          <div className="sticky top-0 z-30 mb-1 relative rounded-md bg-white/65 backdrop-blur-sm dark:bg-zinc-900/50">
             {noteViewportWidth > 0 && (
               <div
                 className="absolute top-1 z-40 -translate-x-1/2 rounded bg-yellow-300 px-1.5 py-0.5 text-[10px] font-semibold text-black pointer-events-none"
@@ -320,7 +320,7 @@ export function PianoRoll({
                 {playheadIndicatorLabel}
               </div>
             )}
-            <div className="relative h-8 overflow-hidden rounded-lg bg-slate-500/70 dark:bg-slate-700/80">
+            <div className="relative h-8 overflow-hidden rounded-lg bg-slate-500/70 dark:bg-zinc-700/75">
               <div
                 ref={rulerRef}
                 className="relative h-8 select-none"
@@ -346,7 +346,7 @@ export function PianoRoll({
                   return (
                     <div key={`bar-mark-${barIndex}`}>
                 <div
-                  className="absolute top-0 bottom-0 w-px bg-slate-300/70 pointer-events-none dark:bg-slate-500/70"
+                  className="absolute top-0 bottom-0 w-px bg-slate-300/70 pointer-events-none dark:bg-zinc-500/60"
                   style={{ left }}
                 />
                 <div
@@ -377,7 +377,7 @@ export function PianoRoll({
               style={{ left: notePlayheadPx }}
             />
             <div
-              className="rounded-lg bg-slate-400/45 dark:bg-slate-800/50"
+              className="rounded-lg bg-slate-400/45 dark:bg-zinc-800/50"
               style={{ width: gridBeats * CELL_W }}
             >
               {melodicPitches.map((pitch) => (
@@ -429,7 +429,7 @@ export function PianoRoll({
                           key={`${pitch}-${beat}`}
                           type="button"
                           aria-label={`${pitch} beat ${beat} ${filled ? "on" : "off"}`}
-                          className={`rounded-md p-0 cursor-pointer transition-colors border-[1.5px] border-neutral-500/75 dark:border-neutral-500/75 ${
+                          className={`rounded-md p-0 cursor-pointer transition-colors border-[1.5px] border-neutral-500/75 dark:border-zinc-600/75 ${
                             filled && isNoteEnd
                               ? "cursor-e-resize"
                               : "cursor-pointer"
@@ -437,8 +437,8 @@ export function PianoRoll({
                             filled
                               ? filledClass
                               : isAltBar
-                              ? "bg-neutral-300 dark:bg-neutral-800 hover:bg-neutral-400 dark:hover:bg-neutral-700"
-                              : "bg-neutral-200 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800"
+                              ? "bg-neutral-300 dark:bg-zinc-800 hover:bg-neutral-400 dark:hover:bg-zinc-700"
+                              : "bg-neutral-200 dark:bg-zinc-900 hover:bg-neutral-300 dark:hover:bg-zinc-800"
                           }`}
                           style={{
                             width: CELL_W,
@@ -605,14 +605,14 @@ export function PianoRoll({
                     return (
                       <div
                         key={`mic-${beat}`}
-                        className={`rounded-md border-[1.5px] border-neutral-500/75 dark:border-neutral-500/75 ${
+                        className={`rounded-md border-[1.5px] border-neutral-500/75 dark:border-zinc-600/75 ${
                           clipInCell
                             ? recordingClip && clipInCell === recordingClip
                               ? "bg-red-500/75"
                               : "bg-cyan-500/70"
                             : isAltBar
-                              ? "bg-neutral-300 dark:bg-neutral-800"
-                              : "bg-neutral-200 dark:bg-neutral-900"
+                              ? "bg-neutral-300 dark:bg-zinc-800"
+                              : "bg-neutral-200 dark:bg-zinc-900"
                         }`}
                         style={{
                           width: CELL_W,
@@ -682,10 +682,10 @@ export function PianoRoll({
       {vocalMenu && selectedVocalClip && (
         <div
           ref={vocalMenuRef}
-          className="fixed z-[70] w-40 rounded-xl border border-slate-300/70 bg-white/90 p-2 shadow-xl backdrop-blur-md dark:border-white/15 dark:bg-slate-900/90"
+          className="fixed z-[70] w-40 rounded-xl border border-slate-300/70 bg-white/90 p-2 shadow-xl backdrop-blur-md dark:border-white/15 dark:bg-zinc-900/90"
           style={{ left: vocalMenu.x, top: vocalMenu.y }}
         >
-          <div className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Vocal Clip</div>
+          <div className="mb-2 text-xs font-semibold text-slate-600 dark:text-zinc-300">Vocal Clip</div>
           <button
             type="button"
             className="w-full rounded-md border border-red-300 bg-red-500/90 px-2 py-1.5 text-left text-xs font-semibold text-white transition-all duration-200 hover:bg-red-600 hover:shadow-[0_0_16px_rgba(255,120,120,0.75)]"
@@ -715,14 +715,14 @@ export function PianoRoll({
       {micInputMenu && (
         <div
           ref={micInputMenuRef}
-          className="fixed z-[80] w-56 rounded-xl border border-slate-300/70 bg-white/90 p-2 shadow-xl backdrop-blur-md dark:border-white/15 dark:bg-slate-900/90"
+          className="fixed z-[80] w-56 rounded-xl border border-slate-300/70 bg-white/90 p-2 shadow-xl backdrop-blur-md dark:border-white/15 dark:bg-zinc-900/90"
           style={{ left: micInputMenu.x, top: micInputMenu.y }}
         >
-          <div className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Mic Input</div>
+          <div className="mb-2 text-xs font-semibold text-slate-600 dark:text-zinc-300">Mic Input</div>
           <select
             value={selectedAudioInputId}
             onChange={(e) => onSelectedAudioInputIdChange(e.target.value)}
-            className="h-8 w-full rounded-lg border border-slate-300/80 bg-white/90 px-2 text-xs text-slate-800 dark:border-white/15 dark:bg-slate-700/60 dark:text-slate-100"
+            className="h-8 w-full rounded-lg border border-slate-300/80 bg-white/90 px-2 text-xs text-slate-800 dark:border-white/15 dark:bg-zinc-700/60 dark:text-slate-100"
             title="Vocal input device"
           >
             <option value="default">System Default</option>
