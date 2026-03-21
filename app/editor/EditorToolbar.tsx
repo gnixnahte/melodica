@@ -139,7 +139,7 @@ export function EditorToolbar({
   }, [fxPanelOpen]);
 
   return (
-    <div className="mx-4 mt-4 flex flex-row flex-wrap items-center justify-evenly gap-x-4 gap-y-2 rounded-2xl border border-white/60 bg-white/50 p-4 text-sm shadow-xl shadow-slate-300/20 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20">
+    <div className="relative z-[90] mx-4 mt-4 flex flex-row flex-wrap items-center justify-evenly gap-x-4 gap-y-2 rounded-2xl border border-white/60 bg-white/50 p-4 text-sm shadow-xl shadow-slate-300/20 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20">
       <div>
         <span className="font-medium">BPM:</span>
         <input
@@ -378,8 +378,8 @@ export function EditorToolbar({
         />
       </div>
 
-      <div ref={fxPanelRef} className="relative flex flex-col items-start gap-2">
-        <div className="flex items-end gap-3">
+      <div ref={fxPanelRef} className="relative">
+        <div className="relative flex items-end gap-3">
           <SettingDial
             label="Master"
             value={project.settings.masterVolume}
@@ -425,17 +425,16 @@ export function EditorToolbar({
               }))
             }
           />
-        </div>
-        <button
-          type="button"
-          className="rounded-md border border-white/70 bg-white/70 px-2 py-1 text-xs font-medium transition-all duration-150 hover:shadow-[0_0_14px_rgba(255,255,255,0.72)] dark:border-white/15 dark:bg-zinc-700/50 dark:hover:shadow-[0_0_14px_rgba(255,255,255,0.35)]"
-          aria-expanded={fxPanelOpen}
-          onClick={() => setFxPanelOpen(true)}
-        >
-          {fxPanelOpen ? "\u25BE FX" : "\u25B8 FX"}
-        </button>
-        {fxPanelOpen ? (
-          <div className="absolute left-0 top-full z-40 mt-2 rounded-xl border border-white/70 bg-white/85 p-3 shadow-2xl shadow-slate-400/20 backdrop-blur-xl dark:border-white/15 dark:bg-zinc-900/70 dark:shadow-black/25">
+          <button
+            type="button"
+            className="mx-auto mt-1 block rounded-md border border-white/70 bg-white/70 px-2 py-0.5 text-[11px] font-medium leading-none transition-all duration-150 hover:shadow-[0_0_14px_rgba(255,255,255,0.72)] dark:border-white/15 dark:bg-zinc-700/50 dark:hover:shadow-[0_0_14px_rgba(255,255,255,0.35)]"
+            aria-expanded={fxPanelOpen}
+            onClick={() => setFxPanelOpen((prev) => !prev)}
+          >
+            V
+          </button>
+          {fxPanelOpen ? (
+            <div className="absolute left-1/2 top-full z-[120] mt-1 -translate-x-1/2 rounded-xl border border-white/70 bg-white/85 p-3 shadow-2xl shadow-slate-400/20 backdrop-blur-xl dark:border-white/15 dark:bg-zinc-900/70 dark:shadow-black/25">
             <div className="flex items-end gap-3">
               <label className="flex flex-col gap-1 text-[11px] font-medium">
                 <span>SFX Preset</span>
@@ -474,8 +473,9 @@ export function EditorToolbar({
                 }
               />
             </div>
-          </div>
-        ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex items-center gap-3">
