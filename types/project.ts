@@ -60,6 +60,7 @@ export type ProjectSettings = {
   reverbWet: number;
   reverbDecay: number;
   sfxPreset: SfxPreset;
+  distortionAmount: number;
 };
 
 export type Project = {

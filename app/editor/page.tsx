@@ -34,12 +34,12 @@ const MELODY_INSTRUMENT_GAIN_DB: Record<MelodyInstrument, number> = {
 };
 const SFX_PRESET_SETTINGS: Record<
   SfxPreset,
-  { filterType: "lowpass" | "bandpass"; filterFrequency: number; filterQ: number; distortion: number }
+  { filterType: "lowpass" | "bandpass"; filterFrequency: number; filterQ: number }
 > = {
-  Clean: { filterType: "lowpass", filterFrequency: 20000, filterQ: 0.0001, distortion: 0 },
-  "Lo-Fi": { filterType: "lowpass", filterFrequency: 3200, filterQ: 0.8, distortion: 0.08 },
-  Telephone: { filterType: "bandpass", filterFrequency: 1300, filterQ: 1.5, distortion: 0.04 },
-  Crunch: { filterType: "lowpass", filterFrequency: 9000, filterQ: 0.6, distortion: 0.35 },
+  Clean: { filterType: "lowpass", filterFrequency: 20000, filterQ: 0.0001 },
+  "Lo-Fi": { filterType: "lowpass", filterFrequency: 3200, filterQ: 0.8 },
+  Telephone: { filterType: "bandpass", filterFrequency: 1300, filterQ: 1.5 },
+  Crunch: { filterType: "lowpass", filterFrequency: 9000, filterQ: 0.6 },
 };
 
 function getBestRecorderMimeType() {
@@ -998,7 +998,7 @@ export default function EditorPage() {
       Q: 0.0001,
     });
     const sfxDistortion = new Tone.Distortion({
-      distortion: 0,
+      distortion: Math.max(0, Math.min(1, project.settings.distortionAmount)),
       wet: 1,
     });
     reverb.connect(sfxFilter);
@@ -1063,15 +1063,21 @@ export default function EditorPage() {
 
   useEffect(() => {
     const filter = sfxFilterRef.current;
-    const distortion = sfxDistortionRef.current;
-    if (!filter || !distortion) return;
+    if (!filter) return;
 
     const preset = SFX_PRESET_SETTINGS[project.settings.sfxPreset ?? "Clean"];
     filter.type = preset.filterType;
     filter.frequency.rampTo(preset.filterFrequency, 0.07);
     filter.Q.rampTo(preset.filterQ, 0.07);
-    distortion.set({ distortion: preset.distortion });
   }, [project.settings.sfxPreset]);
+
+  useEffect(() => {
+    const distortion = sfxDistortionRef.current;
+    if (!distortion) return;
+    distortion.set({
+      distortion: Math.max(0, Math.min(1, project.settings.distortionAmount)),
+    });
+  }, [project.settings.distortionAmount]);
 
   useEffect(() => {
     const synthBank = synthBankRef.current;

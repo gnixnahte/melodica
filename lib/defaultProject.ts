@@ -19,6 +19,7 @@ export function createDefaultProject(name = "Untitled"): Project {
       reverbWet: 0.2,
       reverbDecay: 2.5,
       sfxPreset: "Clean",
+      distortionAmount: 0,
     },
     drumTracks: [
       { id: crypto.randomUUID(), drum: "kick", variant: 0, hits: [] },

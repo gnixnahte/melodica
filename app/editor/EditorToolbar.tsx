@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import * as Tone from "tone";
 import { getPitches } from "@/lib/pitches";
 import type { KeyRoot, ScaleFamily } from "@/lib/pitches";
@@ -123,6 +124,20 @@ export function EditorToolbar({
   notesMuted,
   setNotesMuted,
 }: EditorToolbarProps) {
+  const [fxPanelOpen, setFxPanelOpen] = useState(false);
+  const fxPanelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!fxPanelOpen) return;
+    const onMouseDown = (event: MouseEvent) => {
+      if (!fxPanelRef.current) return;
+      if (fxPanelRef.current.contains(event.target as Node)) return;
+      setFxPanelOpen(false);
+    };
+    window.addEventListener("mousedown", onMouseDown);
+    return () => window.removeEventListener("mousedown", onMouseDown);
+  }, [fxPanelOpen]);
+
   return (
     <div className="mx-4 mt-4 flex flex-row flex-wrap items-center justify-evenly gap-x-4 gap-y-2 rounded-2xl border border-white/60 bg-white/50 p-4 text-sm shadow-xl shadow-slate-300/20 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20">
       <div>
@@ -363,7 +378,7 @@ export function EditorToolbar({
         />
       </div>
 
-      <div className="flex flex-col items-start gap-2">
+      <div ref={fxPanelRef} className="relative flex flex-col items-start gap-2">
         <div className="flex items-end gap-3">
           <SettingDial
             label="Master"
@@ -411,27 +426,56 @@ export function EditorToolbar({
             }
           />
         </div>
-        <label className="flex items-center gap-2 text-xs font-medium">
-          <span>SFX</span>
-          <select
-            className="rounded-md border border-slate-300/70 bg-white/70 px-2 py-1 text-xs dark:border-white/15 dark:bg-zinc-800/60"
-            value={project.settings.sfxPreset}
-            onChange={(e) => {
-              const sfxPreset = e.target.value as SfxPreset;
-              setProject((p) => ({
-                ...p,
-                settings: { ...p.settings, sfxPreset },
-                updatedAt: Date.now(),
-              }));
-            }}
-          >
-            {SFX_PRESETS.map((preset) => (
-              <option key={preset} value={preset}>
-                {preset}
-              </option>
-            ))}
-          </select>
-        </label>
+        <button
+          type="button"
+          className="rounded-md border border-white/70 bg-white/70 px-2 py-1 text-xs font-medium transition-all duration-150 hover:shadow-[0_0_14px_rgba(255,255,255,0.72)] dark:border-white/15 dark:bg-zinc-700/50 dark:hover:shadow-[0_0_14px_rgba(255,255,255,0.35)]"
+          aria-expanded={fxPanelOpen}
+          onClick={() => setFxPanelOpen(true)}
+        >
+          {fxPanelOpen ? "\u25BE FX" : "\u25B8 FX"}
+        </button>
+        {fxPanelOpen ? (
+          <div className="absolute left-0 top-full z-40 mt-2 rounded-xl border border-white/70 bg-white/85 p-3 shadow-2xl shadow-slate-400/20 backdrop-blur-xl dark:border-white/15 dark:bg-zinc-900/70 dark:shadow-black/25">
+            <div className="flex items-end gap-3">
+              <label className="flex flex-col gap-1 text-[11px] font-medium">
+                <span>SFX Preset</span>
+                <select
+                  className="rounded-md border border-slate-300/70 bg-white/70 px-2 py-1 text-xs dark:border-white/15 dark:bg-zinc-800/60"
+                  value={project.settings.sfxPreset}
+                  onChange={(e) => {
+                    const sfxPreset = e.target.value as SfxPreset;
+                    setProject((p) => ({
+                      ...p,
+                      settings: { ...p.settings, sfxPreset },
+                      updatedAt: Date.now(),
+                    }));
+                  }}
+                >
+                  {SFX_PRESETS.map((preset) => (
+                    <option key={preset} value={preset}>
+                      {preset}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <SettingDial
+                label="Distort"
+                value={project.settings.distortionAmount}
+                min={0}
+                max={1}
+                step={0.01}
+                decimals={2}
+                onChange={(next) =>
+                  setProject((p) => ({
+                    ...p,
+                    settings: { ...p.settings, distortionAmount: next },
+                    updatedAt: Date.now(),
+                  }))
+                }
+              />
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex items-center gap-3">
