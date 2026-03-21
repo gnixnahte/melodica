@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import { createDefaultProject } from "@/lib/defaultProject";
 import { normalizeInstrument } from "@/lib/editorUtils";
-import type { MelodyInstrument, Project } from "@/types/project";
+import type { MelodyInstrument, Project, SfxPreset } from "@/types/project";
 import { DRUM_STEPS_PER_BAR } from "../editor/constants";
 
 type SongRow = {
@@ -26,39 +26,49 @@ function createMelodySynthPreset(instrument: MelodyInstrument) {
       return new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "sawtooth" },
         envelope: { attack: 0.01, decay: 0.08, sustain: 0.45, release: shortRelease },
-      }).toDestination();
+      });
     case "Square":
       return new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "square" },
         envelope: { attack: 0.005, decay: 0.05, sustain: 0.35, release: shortRelease },
-      }).toDestination();
+      });
     case "FM Bell":
       return new Tone.PolySynth(Tone.FMSynth, {
         harmonicity: 3,
         modulationIndex: 8,
         envelope: { attack: 0.005, decay: 0.25, sustain: 0.1, release: shortRelease },
-      }).toDestination();
+      });
     case "AM Pad":
       return new Tone.PolySynth(Tone.AMSynth, {
         harmonicity: 1.5,
         envelope: { attack: 0.08, decay: 0.2, sustain: 0.55, release: shortRelease },
-      }).toDestination();
+      });
     case "Duo Lead":
       return new Tone.PolySynth(Tone.DuoSynth, {
         vibratoAmount: 0.3,
         vibratoRate: 5,
         harmonicity: 1.5,
-      }).toDestination();
+      });
     case "Triangle":
     default:
       return new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "triangle" },
         envelope: { attack: 0.01, decay: 0.01, sustain: 0.4, release: shortRelease },
-      }).toDestination();
+      });
   }
 }
 
 type MelodyPolySynth = ReturnType<typeof createMelodySynthPreset>;
+
+const SFX_PRESET_SETTINGS: Record<
+  SfxPreset,
+  { filterType: "lowpass" | "bandpass"; filterFrequency: number; filterQ: number }
+> = {
+  Clean: { filterType: "lowpass", filterFrequency: 20000, filterQ: 0.0001 },
+  "Lo-Fi": { filterType: "lowpass", filterFrequency: 3200, filterQ: 0.8 },
+  Telephone: { filterType: "bandpass", filterFrequency: 1300, filterQ: 1.5 },
+  Crunch: { filterType: "lowpass", filterFrequency: 9000, filterQ: 0.6 },
+};
 
 function normalizeSongProject(song: SongRow): Project {
   const base = createDefaultProject(song.title ?? "Untitled");
@@ -164,11 +174,16 @@ export default function DashboardPage() {
   const router = useRouter();
   const scheduleIdRef = useRef<number | null>(null);
   const synthBankRef = useRef<Map<MelodyInstrument, MelodyPolySynth>>(new Map());
+  const masterGainRef = useRef<Tone.Gain | null>(null);
+  const reverbRef = useRef<Tone.Reverb | null>(null);
+  const sfxFilterRef = useRef<Tone.Filter | null>(null);
+  const sfxDistortionRef = useRef<Tone.Distortion | null>(null);
   const kickRef = useRef<Tone.MembraneSynth[]>([]);
   const snareRef = useRef<Tone.NoiseSynth[]>([]);
   const hatRef = useRef<Tone.MetalSynth[]>([]);
   const tomRef = useRef<Tone.MembraneSynth[]>([]);
   const playingVocalAudioRef = useRef<HTMLAudioElement[]>([]);
+  const masterVolumeRef = useRef(0.9);
   const playbackStepRef = useRef(0);
   const totalStepsRef = useRef(1);
 
@@ -193,12 +208,44 @@ export default function DashboardPage() {
     totalStepsRef.current = 1;
   };
 
+  const applySongFxSettings = (project: Project) => {
+    const master = masterGainRef.current;
+    const reverb = reverbRef.current;
+    const filter = sfxFilterRef.current;
+    const distortion = sfxDistortionRef.current;
+    if (!master || !reverb || !filter || !distortion) return;
+
+    const settings = project.settings;
+    const nextMaster = Math.max(0, Math.min(1, settings.masterVolume ?? 0.9));
+    const nextWet = Math.max(0, Math.min(1, settings.reverbWet ?? 0.2));
+    const nextDecay = Math.max(0.2, Math.min(10, settings.reverbDecay ?? 2.5));
+    const nextDistortion = Math.max(0, Math.min(1, settings.distortionAmount ?? 0));
+    const preset = SFX_PRESET_SETTINGS[settings.sfxPreset ?? "Clean"];
+
+    masterVolumeRef.current = nextMaster;
+    master.gain.value = nextMaster;
+    reverb.wet.value = nextWet;
+    reverb.decay = nextDecay;
+    void reverb.generate();
+    filter.type = preset.filterType;
+    filter.frequency.value = preset.filterFrequency;
+    filter.Q.value = preset.filterQ;
+    distortion.set({ distortion: nextDistortion });
+  };
+
+  const connectInstrumentNode = <T extends Tone.ToneAudioNode>(node: T): T => {
+    const reverb = reverbRef.current;
+    if (reverb) node.connect(reverb);
+    else node.toDestination();
+    return node;
+  };
+
   const getMelodySynth = (instrument: MelodyInstrument) => {
     const normalized = normalizeInstrument(instrument);
     const existing = synthBankRef.current.get(normalized);
     if (existing) return existing;
 
-    const created = createMelodySynthPreset(normalized);
+    const created = connectInstrumentNode(createMelodySynthPreset(normalized));
     synthBankRef.current.set(normalized, created);
     return created;
   };
@@ -231,91 +278,110 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const synthBank = synthBankRef.current;
+    const master = new Tone.Gain(0.9).toDestination();
+    const reverb = new Tone.Reverb({ decay: 2.5, wet: 0.2 });
+    const sfxFilter = new Tone.Filter({
+      type: "lowpass",
+      frequency: 20000,
+      Q: 0.0001,
+    });
+    const sfxDistortion = new Tone.Distortion({
+      distortion: 0,
+      wet: 1,
+    });
+    reverb.connect(sfxFilter);
+    sfxFilter.connect(sfxDistortion);
+    sfxDistortion.connect(master);
+    masterGainRef.current = master;
+    reverbRef.current = reverb;
+    sfxFilterRef.current = sfxFilter;
+    sfxDistortionRef.current = sfxDistortion;
+
     kickRef.current = [
-      new Tone.MembraneSynth({
+      connectInstrumentNode(new Tone.MembraneSynth({
         pitchDecay: 0.05,
         octaves: 7,
         envelope: { attack: 0.001, decay: 0.16, sustain: 0 },
-      }).toDestination(),
-      new Tone.MembraneSynth({
+      })),
+      connectInstrumentNode(new Tone.MembraneSynth({
         pitchDecay: 0.06,
         octaves: 10,
         envelope: { attack: 0.001, decay: 0.30, sustain: 0 },
-      }).toDestination(),
-      new Tone.MembraneSynth({
+      })),
+      connectInstrumentNode(new Tone.MembraneSynth({
         pitchDecay: 0.03,
         octaves: 6,
         envelope: { attack: 0.001, decay: 0.12, sustain: 0 },
-      }).toDestination(),
+      })),
     ];
 
     snareRef.current = [
-      new Tone.NoiseSynth({
+      connectInstrumentNode(new Tone.NoiseSynth({
         noise: { type: "white" },
         envelope: { attack: 0.001, decay: 0.12, sustain: 0 },
-      }).toDestination(),
-      new Tone.NoiseSynth({
+      })),
+      connectInstrumentNode(new Tone.NoiseSynth({
         noise: { type: "pink" },
         envelope: { attack: 0.001, decay: 0.18, sustain: 0 },
-      }).toDestination(),
-      new Tone.NoiseSynth({
+      })),
+      connectInstrumentNode(new Tone.NoiseSynth({
         noise: { type: "brown" },
         envelope: { attack: 0.001, decay: 0.08, sustain: 0 },
-      }).toDestination(),
+      })),
     ];
 
     hatRef.current = [
       (() => {
-        const h = new Tone.MetalSynth({
+        const h = connectInstrumentNode(new Tone.MetalSynth({
           envelope: { attack: 0.001, decay: 0.05, release: 0.01 },
           harmonicity: 5.1,
           modulationIndex: 28,
           resonance: 2500,
           octaves: 1.2,
-        }).toDestination();
+        }));
         h.frequency.value = 250;
         return h;
       })(),
       (() => {
-        const h = new Tone.MetalSynth({
+        const h = connectInstrumentNode(new Tone.MetalSynth({
           envelope: { attack: 0.001, decay: 0.11, release: 0.02 },
           harmonicity: 5.1,
           modulationIndex: 32,
           resonance: 3500,
           octaves: 1.6,
-        }).toDestination();
+        }));
         h.frequency.value = 300;
         return h;
       })(),
       (() => {
-        const h = new Tone.MetalSynth({
+        const h = connectInstrumentNode(new Tone.MetalSynth({
           envelope: { attack: 0.001, decay: 0.07, release: 0.01 },
           harmonicity: 5.1,
           modulationIndex: 40,
           resonance: 5200,
           octaves: 1.4,
-        }).toDestination();
+        }));
         h.frequency.value = 220;
         return h;
       })(),
     ];
 
     tomRef.current = [
-      new Tone.MembraneSynth({
+      connectInstrumentNode(new Tone.MembraneSynth({
         pitchDecay: 0.03,
         octaves: 4,
         envelope: { attack: 0.001, decay: 0.22, sustain: 0 },
-      }).toDestination(),
-      new Tone.MembraneSynth({
+      })),
+      connectInstrumentNode(new Tone.MembraneSynth({
         pitchDecay: 0.025,
         octaves: 3,
         envelope: { attack: 0.001, decay: 0.20, sustain: 0 },
-      }).toDestination(),
-      new Tone.MembraneSynth({
+      })),
+      connectInstrumentNode(new Tone.MembraneSynth({
         pitchDecay: 0.02,
         octaves: 2,
         envelope: { attack: 0.001, decay: 0.18, sustain: 0 },
-      }).toDestination(),
+      })),
     ];
 
     return () => {
@@ -325,6 +391,14 @@ export default function DashboardPage() {
       [...kickRef.current, ...snareRef.current, ...hatRef.current, ...tomRef.current].forEach(
         (inst) => inst.dispose()
       );
+      sfxDistortion.dispose();
+      sfxFilter.dispose();
+      reverb.dispose();
+      master.dispose();
+      sfxDistortionRef.current = null;
+      sfxFilterRef.current = null;
+      reverbRef.current = null;
+      masterGainRef.current = null;
       kickRef.current = [];
       snareRef.current = [];
       hatRef.current = [];
@@ -351,6 +425,7 @@ export default function DashboardPage() {
     setPlaybackProgress(0);
 
     const project = normalizeSongProject(song);
+    applySongFxSettings(project);
     const totalSteps16 = getPlayableSteps16(project);
     totalStepsRef.current = totalSteps16;
     playbackStepRef.current = 0;
@@ -393,7 +468,10 @@ export default function DashboardPage() {
         .filter((clip) => clip.startStep16 === step16);
       for (const clip of vocalClipsNow) {
         const audio = new Audio(clip.url);
-        audio.volume = Math.max(0, Math.min(1, clip.gain ?? 1));
+        audio.volume = Math.max(
+          0,
+          Math.min(1, (clip.gain ?? 1) * masterVolumeRef.current)
+        );
         audio.currentTime = 0;
         audio.play().catch(() => {});
         playingVocalAudioRef.current.push(audio);
