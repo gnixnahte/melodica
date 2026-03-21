@@ -296,6 +296,7 @@ export default function EditorPage() {
   const stopSongAfterVocalStopRef = useRef(false);
   const previousIsPlayingRef = useRef(false);
   const masterVolumeRef = useRef(project.settings.masterVolume);
+  const previousMasterVolumeRef = useRef(project.settings.masterVolume);
 
   const notePlayheadPx = (currentStep16 / 2) * CELL_W;
   const playheadLeftOfView = notePlayheadPx < scrollLeft;
@@ -1001,8 +1002,21 @@ export default function EditorPage() {
   useEffect(() => {
     if (!masterGainRef.current) return;
     const nextMasterVolume = Math.max(0, Math.min(1, project.settings.masterVolume));
+    const prevMasterVolume = Math.max(0, Math.min(1, previousMasterVolumeRef.current));
     masterVolumeRef.current = nextMasterVolume;
+    previousMasterVolumeRef.current = nextMasterVolume;
     masterGainRef.current.gain.rampTo(nextMasterVolume, 0.05);
+
+    // HTMLAudioElement playback (vocal clips) sits outside the Tone graph.
+    // Scale in-flight clip volumes so the Master dial is truly global.
+    if (prevMasterVolume !== nextMasterVolume) {
+      const ratio =
+        prevMasterVolume > 0 ? nextMasterVolume / prevMasterVolume : 0;
+      for (const audio of playingVocalAudioRef.current) {
+        if (!Number.isFinite(audio.volume)) continue;
+        audio.volume = Math.max(0, Math.min(1, audio.volume * ratio));
+      }
+    }
   }, [project.settings.masterVolume]);
 
   useEffect(() => {
@@ -1016,6 +1030,7 @@ export default function EditorPage() {
   useEffect(() => {
     if (!reverbRef.current) return;
     reverbRef.current.decay = Math.max(0.2, Math.min(10, project.settings.reverbDecay));
+    void reverbRef.current.generate();
   }, [project.settings.reverbDecay]);
 
   useEffect(() => {
@@ -1032,11 +1047,11 @@ export default function EditorPage() {
   // Create drums + metronome once
   useEffect(() => {
     // create METRONOME //
-    metroRef.current = connectInstrumentNode(new Tone.MembraneSynth({
+    metroRef.current = new Tone.MembraneSynth({
       pitchDecay: 0.008,
       octaves: 2,
       envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.01 },
-    }));
+    }).toDestination();
   
     // ===== DRUMS: 3 variants each =====
   
