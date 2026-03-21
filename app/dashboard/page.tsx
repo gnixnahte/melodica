@@ -511,7 +511,7 @@ export default function DashboardPage() {
                         max={100}
                         value={sliderValue}
                         onChange={(e) => handleSeek(song.id, Number(e.currentTarget.value))}
-                        className="h-2 w-full appearance-none rounded-full border border-white/70 transition-all duration-200"
+                        className="dashboard-slider h-2 w-full appearance-none rounded-full border border-white/70 transition-all duration-200"
                         style={{
                           background: `linear-gradient(90deg, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.96) ${sliderValue}%, rgba(148,163,184,0.35) ${sliderValue}%, rgba(148,163,184,0.35) 100%)`,
                           boxShadow:
