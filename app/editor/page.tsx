@@ -53,35 +53,35 @@ function createMelodySynthPreset(instrument: MelodyInstrument) {
       return new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "sawtooth" },
         envelope: { attack: 0.01, decay: 0.08, sustain: 0.45, release: shortRelease },
-      }).toDestination();
+      });
     case "Square":
       return new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "square" },
         envelope: { attack: 0.005, decay: 0.05, sustain: 0.35, release: shortRelease },
-      }).toDestination();
+      });
     case "FM Bell":
       return new Tone.PolySynth(Tone.FMSynth, {
         harmonicity: 3,
         modulationIndex: 8,
         envelope: { attack: 0.005, decay: 0.25, sustain: 0.1, release: shortRelease },
-      }).toDestination();
+      });
     case "AM Pad":
       return new Tone.PolySynth(Tone.AMSynth, {
         harmonicity: 1.5,
         envelope: { attack: 0.08, decay: 0.2, sustain: 0.55, release: shortRelease },
-      }).toDestination();
+      });
     case "Duo Lead":
       return new Tone.PolySynth(Tone.DuoSynth, {
         vibratoAmount: 0.3,
         vibratoRate: 5,
         harmonicity: 1.5,
-      }).toDestination();
+      });
     case "Triangle":
     default:
       return new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "triangle" },
         envelope: { attack: 0.01, decay: 0.01, sustain: 0.4, release: shortRelease },
-      }).toDestination();
+      });
   }
 }
 type MelodyPolySynth = ReturnType<typeof createMelodySynthPreset>;
@@ -252,6 +252,8 @@ export default function EditorPage() {
   //synth and keys setup
   const keys = project.scaleFamily === "MAJOR" ? ALL_MAJOR_KEYS : ALL_MINOR_KEYS;
   const synthBankRef = useRef<Map<MelodyInstrument, MelodyPolySynth>>(new Map());
+  const masterGainRef = useRef<Tone.Gain | null>(null);
+  const reverbRef = useRef<Tone.Reverb | null>(null);
   const kickRef = useRef<Tone.MembraneSynth[]>([]);
   const snareRef = useRef<Tone.NoiseSynth[]>([]);
   const hatRef = useRef<Tone.MetalSynth[]>([]);
@@ -293,6 +295,7 @@ export default function EditorPage() {
   const playingVocalAudioRef = useRef<HTMLAudioElement[]>([]);
   const stopSongAfterVocalStopRef = useRef(false);
   const previousIsPlayingRef = useRef(false);
+  const masterVolumeRef = useRef(project.settings.masterVolume);
 
   const notePlayheadPx = (currentStep16 / 2) * CELL_W;
   const playheadLeftOfView = notePlayheadPx < scrollLeft;
@@ -771,12 +774,19 @@ export default function EditorPage() {
     }
   };
 
+  const connectInstrumentNode = <T extends Tone.ToneAudioNode>(node: T): T => {
+    const reverb = reverbRef.current;
+    if (reverb) node.connect(reverb);
+    else node.toDestination();
+    return node;
+  };
+
   const getMelodySynth = (instrument: MelodyInstrument) => {
     const normalized = normalizeInstrument(instrument);
     const existing = synthBankRef.current.get(normalized);
     if (existing) return existing;
 
-    const created = createMelodySynthPreset(normalized);
+    const created = connectInstrumentNode(createMelodySynthPreset(normalized));
     // Level-match presets so different timbres feel closer in loudness.
     created.volume.value = MELODY_INSTRUMENT_GAIN_DB[normalized];
     synthBankRef.current.set(normalized, created);
@@ -963,6 +973,52 @@ export default function EditorPage() {
   }
 
   useEffect(() => {
+    const master = new Tone.Gain(
+      Math.max(0, Math.min(1, project.settings.masterVolume))
+    ).toDestination();
+    const reverb = new Tone.Reverb({
+      decay: Math.max(0.2, Math.min(10, project.settings.reverbDecay)),
+      wet: Math.max(0, Math.min(1, project.settings.reverbWet)),
+    });
+    reverb.connect(master);
+    masterGainRef.current = master;
+    reverbRef.current = reverb;
+    synthBankRef.current.forEach((synth) => {
+      synth.disconnect();
+      synth.connect(reverb);
+    });
+
+    return () => {
+      reverb.dispose();
+      master.dispose();
+      reverbRef.current = null;
+      masterGainRef.current = null;
+    };
+  // Create the shared output FX graph once.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!masterGainRef.current) return;
+    const nextMasterVolume = Math.max(0, Math.min(1, project.settings.masterVolume));
+    masterVolumeRef.current = nextMasterVolume;
+    masterGainRef.current.gain.rampTo(nextMasterVolume, 0.05);
+  }, [project.settings.masterVolume]);
+
+  useEffect(() => {
+    if (!reverbRef.current) return;
+    reverbRef.current.wet.rampTo(
+      Math.max(0, Math.min(1, project.settings.reverbWet)),
+      0.05
+    );
+  }, [project.settings.reverbWet]);
+
+  useEffect(() => {
+    if (!reverbRef.current) return;
+    reverbRef.current.decay = Math.max(0.2, Math.min(10, project.settings.reverbDecay));
+  }, [project.settings.reverbDecay]);
+
+  useEffect(() => {
     const synthBank = synthBankRef.current;
     return () => {
       clearCountdown();
@@ -976,87 +1032,87 @@ export default function EditorPage() {
   // Create drums + metronome once
   useEffect(() => {
     // create METRONOME //
-    metroRef.current = new Tone.MembraneSynth({
+    metroRef.current = connectInstrumentNode(new Tone.MembraneSynth({
       pitchDecay: 0.008,
       octaves: 2,
       envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.01 },
-    }).toDestination();
+    }));
   
     // ===== DRUMS: 3 variants each =====
   
     // KICKS (tight / boomy / clicky)
     kickRef.current = [
-      new Tone.MembraneSynth({
+      connectInstrumentNode(new Tone.MembraneSynth({
         pitchDecay: 0.05,
         octaves: 7,
         envelope: { attack: 0.001, decay: 0.16, sustain: 0 },
-      }).toDestination(),
+      })),
   
-      new Tone.MembraneSynth({
+      connectInstrumentNode(new Tone.MembraneSynth({
         pitchDecay: 0.06,
         octaves: 10,
         envelope: { attack: 0.001, decay: 0.30, sustain: 0 },
-      }).toDestination(),
+      })),
   
-      new Tone.MembraneSynth({
+      connectInstrumentNode(new Tone.MembraneSynth({
         pitchDecay: 0.03,
         octaves: 6,
         envelope: { attack: 0.001, decay: 0.12, sustain: 0 },
-      }).toDestination(),
+      })),
     ];
   
     // SNARES (crisp / thicker / tight)
     snareRef.current = [
-      new Tone.NoiseSynth({
+      connectInstrumentNode(new Tone.NoiseSynth({
         noise: { type: "white" },
         envelope: { attack: 0.001, decay: 0.12, sustain: 0 },
-      }).toDestination(),
+      })),
   
-      new Tone.NoiseSynth({
+      connectInstrumentNode(new Tone.NoiseSynth({
         noise: { type: "pink" },
         envelope: { attack: 0.001, decay: 0.18, sustain: 0 },
-      }).toDestination(),
+      })),
   
-      new Tone.NoiseSynth({
+      connectInstrumentNode(new Tone.NoiseSynth({
         noise: { type: "brown" },
         envelope: { attack: 0.001, decay: 0.08, sustain: 0 },
-      }).toDestination(),
+      })),
     ];
   
     // HATS (short / open-ish / bright)
     hatRef.current = [
       (() => {
-        const h = new Tone.MetalSynth({
+        const h = connectInstrumentNode(new Tone.MetalSynth({
           envelope: { attack: 0.001, decay: 0.05, release: 0.01 },
           harmonicity: 5.1,
           modulationIndex: 28,
           resonance: 2500,
           octaves: 1.2,
-        }).toDestination();
+        }));
         h.frequency.value = 250;
         return h;
       })(),
     
       (() => {
-        const h = new Tone.MetalSynth({
+        const h = connectInstrumentNode(new Tone.MetalSynth({
           envelope: { attack: 0.001, decay: 0.11, release: 0.02 },
           harmonicity: 5.1,
           modulationIndex: 32,
           resonance: 3500,
           octaves: 1.6,
-        }).toDestination();
+        }));
         h.frequency.value = 300;
         return h;
       })(),
     
       (() => {
-        const h = new Tone.MetalSynth({
+        const h = connectInstrumentNode(new Tone.MetalSynth({
           envelope: { attack: 0.001, decay: 0.07, release: 0.01 },
           harmonicity: 5.1,
           modulationIndex: 40,
           resonance: 5200,
           octaves: 1.4,
-        }).toDestination();
+        }));
         h.frequency.value = 220;
         return h;
       })(),
@@ -1064,23 +1120,23 @@ export default function EditorPage() {
   
     // TOMS (low / mid / high)
     tomRef.current = [
-      new Tone.MembraneSynth({
+      connectInstrumentNode(new Tone.MembraneSynth({
         pitchDecay: 0.03,
         octaves: 4,
         envelope: { attack: 0.001, decay: 0.22, sustain: 0 },
-      }).toDestination(),
+      })),
   
-      new Tone.MembraneSynth({
+      connectInstrumentNode(new Tone.MembraneSynth({
         pitchDecay: 0.025,
         octaves: 3,
         envelope: { attack: 0.001, decay: 0.20, sustain: 0 },
-      }).toDestination(),
+      })),
   
-      new Tone.MembraneSynth({
+      connectInstrumentNode(new Tone.MembraneSynth({
         pitchDecay: 0.02,
         octaves: 2,
         envelope: { attack: 0.001, decay: 0.18, sustain: 0 },
-      }).toDestination(),
+      })),
     ];
   
     // ===== CLEANUP =====
@@ -1215,7 +1271,10 @@ export default function EditorPage() {
         .filter((clip) => clip.startStep16 === step16);
       for (const clip of vocalClipsNow) {
         const audio = new Audio(clip.url);
-        audio.volume = Math.max(0, Math.min(1, clip.gain ?? 1));
+        audio.volume = Math.max(
+          0,
+          Math.min(1, (clip.gain ?? 1) * masterVolumeRef.current)
+        );
         audio.currentTime = 0;
         audio.play().catch(() => {});
         playingVocalAudioRef.current.push(audio);
