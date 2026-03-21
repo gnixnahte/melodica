@@ -35,6 +35,12 @@ export type MelodyInstrument =
   | "AM Pad"
   | "Duo Lead";
 
+export type SfxPreset =
+  | "Clean"
+  | "Lo-Fi"
+  | "Telephone"
+  | "Crunch";
+
 export type AudioClip = {
   id: string;
   startStep16: number;
@@ -53,6 +59,7 @@ export type ProjectSettings = {
   masterVolume: number;
   reverbWet: number;
   reverbDecay: number;
+  sfxPreset: SfxPreset;
 };
 
 export type Project = {

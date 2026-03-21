@@ -6,7 +6,7 @@ import { createDefaultProject } from "@/lib/defaultProject";
 import { getPitches, ALL_MAJOR_KEYS, ALL_MINOR_KEYS } from "@/lib/pitches";
 import type { KeyRoot } from "@/lib/pitches";
 import { normalizeInstrument } from "@/lib/editorUtils";
-import type { Project, NoteEvent, MelodyInstrument } from "@/types/project";
+import type { Project, NoteEvent, MelodyInstrument, SfxPreset } from "@/types/project";
 import {
   CELL_W,
   NOTE_STEPS_PER_BAR,
@@ -29,8 +29,17 @@ const MELODY_INSTRUMENT_GAIN_DB: Record<MelodyInstrument, number> = {
   Saw: -6,
   Square: -7,
   "FM Bell": 3,
-  "AM Pad": 2,
+  "AM Pad": 6,
   "Duo Lead": -3,
+};
+const SFX_PRESET_SETTINGS: Record<
+  SfxPreset,
+  { filterType: "lowpass" | "bandpass"; filterFrequency: number; filterQ: number; distortion: number }
+> = {
+  Clean: { filterType: "lowpass", filterFrequency: 20000, filterQ: 0.0001, distortion: 0 },
+  "Lo-Fi": { filterType: "lowpass", filterFrequency: 3200, filterQ: 0.8, distortion: 0.08 },
+  Telephone: { filterType: "bandpass", filterFrequency: 1300, filterQ: 1.5, distortion: 0.04 },
+  Crunch: { filterType: "lowpass", filterFrequency: 9000, filterQ: 0.6, distortion: 0.35 },
 };
 
 function getBestRecorderMimeType() {
@@ -254,6 +263,8 @@ export default function EditorPage() {
   const synthBankRef = useRef<Map<MelodyInstrument, MelodyPolySynth>>(new Map());
   const masterGainRef = useRef<Tone.Gain | null>(null);
   const reverbRef = useRef<Tone.Reverb | null>(null);
+  const sfxFilterRef = useRef<Tone.Filter | null>(null);
+  const sfxDistortionRef = useRef<Tone.Distortion | null>(null);
   const kickRef = useRef<Tone.MembraneSynth[]>([]);
   const snareRef = useRef<Tone.NoiseSynth[]>([]);
   const hatRef = useRef<Tone.MetalSynth[]>([]);
@@ -981,17 +992,34 @@ export default function EditorPage() {
       decay: Math.max(0.2, Math.min(10, project.settings.reverbDecay)),
       wet: Math.max(0, Math.min(1, project.settings.reverbWet)),
     });
-    reverb.connect(master);
+    const sfxFilter = new Tone.Filter({
+      type: "lowpass",
+      frequency: 20000,
+      Q: 0.0001,
+    });
+    const sfxDistortion = new Tone.Distortion({
+      distortion: 0,
+      wet: 1,
+    });
+    reverb.connect(sfxFilter);
+    sfxFilter.connect(sfxDistortion);
+    sfxDistortion.connect(master);
     masterGainRef.current = master;
     reverbRef.current = reverb;
+    sfxFilterRef.current = sfxFilter;
+    sfxDistortionRef.current = sfxDistortion;
     synthBankRef.current.forEach((synth) => {
       synth.disconnect();
       synth.connect(reverb);
     });
 
     return () => {
+      sfxDistortion.dispose();
+      sfxFilter.dispose();
       reverb.dispose();
       master.dispose();
+      sfxDistortionRef.current = null;
+      sfxFilterRef.current = null;
       reverbRef.current = null;
       masterGainRef.current = null;
     };
@@ -1032,6 +1060,18 @@ export default function EditorPage() {
     reverbRef.current.decay = Math.max(0.2, Math.min(10, project.settings.reverbDecay));
     void reverbRef.current.generate();
   }, [project.settings.reverbDecay]);
+
+  useEffect(() => {
+    const filter = sfxFilterRef.current;
+    const distortion = sfxDistortionRef.current;
+    if (!filter || !distortion) return;
+
+    const preset = SFX_PRESET_SETTINGS[project.settings.sfxPreset ?? "Clean"];
+    filter.type = preset.filterType;
+    filter.frequency.rampTo(preset.filterFrequency, 0.07);
+    filter.Q.rampTo(preset.filterQ, 0.07);
+    distortion.set({ distortion: preset.distortion });
+  }, [project.settings.sfxPreset]);
 
   useEffect(() => {
     const synthBank = synthBankRef.current;

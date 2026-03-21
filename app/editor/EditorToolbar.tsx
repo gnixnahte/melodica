@@ -3,12 +3,14 @@
 import * as Tone from "tone";
 import { getPitches } from "@/lib/pitches";
 import type { KeyRoot, ScaleFamily } from "@/lib/pitches";
-import type { Project, MelodyInstrument } from "@/types/project";
+import type { Project, MelodyInstrument, SfxPreset } from "@/types/project";
 import { NOTE_STEPS_PER_BAR, DRUM_STEPS_PER_BAR, MELODY_INSTRUMENTS } from "./constants";
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
+
+const SFX_PRESETS: SfxPreset[] = ["Clean", "Lo-Fi", "Telephone", "Crunch"];
 
 type SettingDialProps = {
   label: string;
@@ -361,52 +363,75 @@ export function EditorToolbar({
         />
       </div>
 
-      <div className="flex items-end gap-3">
-        <SettingDial
-          label="Master"
-          value={project.settings.masterVolume}
-          min={0}
-          max={1}
-          step={0.01}
-          decimals={2}
-          onChange={(next) =>
-            setProject((p) => ({
-              ...p,
-              settings: { ...p.settings, masterVolume: next },
-              updatedAt: Date.now(),
-            }))
-          }
-        />
-        <SettingDial
-          label="Wet"
-          value={project.settings.reverbWet}
-          min={0}
-          max={1}
-          step={0.01}
-          decimals={2}
-          onChange={(next) =>
-            setProject((p) => ({
-              ...p,
-              settings: { ...p.settings, reverbWet: next },
-              updatedAt: Date.now(),
-            }))
-          }
-        />
-        <SettingDial
-          label="Decay"
-          value={project.settings.reverbDecay}
-          min={0.2}
-          max={10}
-          step={0.1}
-          decimals={1}
-          onChange={(next) =>
-            setProject((p) => ({
-              ...p,
-              settings: { ...p.settings, reverbDecay: next },
-              updatedAt: Date.now(),
-            }))
-          }
-        />
+      <div className="flex flex-col items-start gap-2">
+        <div className="flex items-end gap-3">
+          <SettingDial
+            label="Master"
+            value={project.settings.masterVolume}
+            min={0}
+            max={1}
+            step={0.01}
+            decimals={2}
+            onChange={(next) =>
+              setProject((p) => ({
+                ...p,
+                settings: { ...p.settings, masterVolume: next },
+                updatedAt: Date.now(),
+              }))
+            }
+          />
+          <SettingDial
+            label="Wet"
+            value={project.settings.reverbWet}
+            min={0}
+            max={1}
+            step={0.01}
+            decimals={2}
+            onChange={(next) =>
+              setProject((p) => ({
+                ...p,
+                settings: { ...p.settings, reverbWet: next },
+                updatedAt: Date.now(),
+              }))
+            }
+          />
+          <SettingDial
+            label="Decay"
+            value={project.settings.reverbDecay}
+            min={0.2}
+            max={10}
+            step={0.1}
+            decimals={1}
+            onChange={(next) =>
+              setProject((p) => ({
+                ...p,
+                settings: { ...p.settings, reverbDecay: next },
+                updatedAt: Date.now(),
+              }))
+            }
+          />
+        </div>
+        <label className="flex items-center gap-2 text-xs font-medium">
+          <span>SFX</span>
+          <select
+            className="rounded-md border border-slate-300/70 bg-white/70 px-2 py-1 text-xs dark:border-white/15 dark:bg-zinc-800/60"
+            value={project.settings.sfxPreset}
+            onChange={(e) => {
+              const sfxPreset = e.target.value as SfxPreset;
+              setProject((p) => ({
+                ...p,
+                settings: { ...p.settings, sfxPreset },
+                updatedAt: Date.now(),
+              }));
+            }}
+          >
+            {SFX_PRESETS.map((preset) => (
+              <option key={preset} value={preset}>
+                {preset}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <div className="flex items-center gap-3">
