@@ -166,12 +166,13 @@ function getSongDurationSeconds(song: SongRow) {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
+  const [authReady, setAuthReady] = useState(false);
   const [songs, setSongs] = useState<SongRow[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [activeSongId, setActiveSongId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackProgress, setPlaybackProgress] = useState(0);
-  const router = useRouter();
   const scheduleIdRef = useRef<number | null>(null);
   const synthBankRef = useRef<Map<MelodyInstrument, MelodyPolySynth>>(new Map());
   const masterGainRef = useRef<Tone.Gain | null>(null);
@@ -258,6 +259,38 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
+    let mounted = true;
+
+    const ensureAuthenticated = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!mounted) return;
+      if (!data.session) {
+        router.replace("/login");
+        return;
+      }
+      setAuthReady(true);
+    };
+
+    void ensureAuthenticated();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        setAuthReady(true);
+        return;
+      }
+      setAuthReady(false);
+      router.replace("/login");
+    });
+
+    return () => {
+      mounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, [router]);
+
+  useEffect(() => {
+    if (!authReady) return;
+
     async function loadSongs() {
       const { data, error } = await supabase
         .from("songs")
@@ -274,7 +307,7 @@ export default function DashboardPage() {
     }
 
     loadSongs();
-  }, []);
+  }, [authReady]);
 
   useEffect(() => {
     const synthBank = synthBankRef.current;
@@ -528,6 +561,24 @@ export default function DashboardPage() {
 
     setSongs((prev) => prev.filter((song) => song.id !== songId));
   }
+
+  async function handleLogout() {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error("Error signing out:", error);
+    }
+    router.push("/login");
+  }
+
+  if (!authReady) {
+    return (
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top,#ffffff_0%,#e8edf4_50%,#dfe6ef_100%)] p-8 dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
+        <div className="mx-auto max-w-5xl rounded-3xl border border-white/60 bg-white/50 p-6 shadow-2xl shadow-slate-400/20 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20">
+          <p className="text-sm opacity-80">Checking session...</p>
+        </div>
+      </main>
+    );
+  }
   
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#ffffff_0%,#e8edf4_50%,#dfe6ef_100%)] p-8 dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
@@ -540,12 +591,13 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        <Link
-          href="/"
+        <button
+          type="button"
+          onClick={() => void handleLogout()}
           className="rounded-md border border-slate-300/80 bg-slate-800 px-4 py-2 text-sm text-white transition-all duration-200 hover:border-white/90 hover:bg-slate-700 hover:shadow-[0_0_18px_rgba(255,255,255,0.5)] dark:border-slate-500/50 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.5)]"
         >
           Log Out
-        </Link>
+        </button>
       </header>
 
       <div className="mt-6 w-full">

@@ -190,9 +190,41 @@ export default function EditorPage() {
   const searchParams = useSearchParams();
   const songIdFromUrl = searchParams.get("id");
   const lastSavedSnapshotRef = useRef("");
+  const [authReady, setAuthReady] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const ensureAuthenticated = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!mounted) return;
+      if (!data.session) {
+        router.replace("/login");
+        return;
+      }
+      setAuthReady(true);
+    };
+
+    void ensureAuthenticated();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        setAuthReady(true);
+        return;
+      }
+      setAuthReady(false);
+      router.replace("/login");
+    });
+
+    return () => {
+      mounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, [router]);
   
   useEffect(() => {
     async function loadSong() {
+      if (!authReady) return;
       if (!songIdFromUrl) return;
 
       const { data, error } = await supabase
@@ -214,7 +246,7 @@ export default function EditorPage() {
     }
 
     loadSong();
-  }, [songIdFromUrl]);
+  }, [authReady, songIdFromUrl]);
   
   type NoteMenuState = {
     noteId: string;
@@ -1399,6 +1431,16 @@ export default function EditorPage() {
     }
     previousIsPlayingRef.current = isPlaying;
   }, [isPlaying, isRecordingVocals]);
+
+  if (!authReady) {
+    return (
+      <main className="flex h-screen flex-col bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
+        <div className="m-6 rounded-xl border border-white/60 bg-white/50 p-4 text-sm opacity-80 backdrop-blur dark:border-white/10 dark:bg-zinc-900/35">
+          Checking session...
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="flex h-screen flex-col bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
