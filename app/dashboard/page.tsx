@@ -165,12 +165,113 @@ function getSongDurationSeconds(song: SongRow) {
   return steps16 * ((60 / bpm) / 4);
 }
 
+function toInt16Pcm(input: Float32Array) {
+  const output = new Int16Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    const sample = Math.max(-1, Math.min(1, input[i] ?? 0));
+    output[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+  }
+  return output;
+}
+
+type Mp3EncoderCtor = new (channels: number, sampleRate: number, kbps: number) => {
+  encodeBuffer: (left: Int16Array, right?: Int16Array) => Int8Array;
+  flush: () => Int8Array;
+};
+
+async function loadMp3EncoderFromVendorScript(): Promise<Mp3EncoderCtor> {
+  if (typeof window === "undefined") {
+    throw new Error("MP3 export is only available in the browser.");
+  }
+
+  const getCtorFromWindow = () => {
+    const w = window as Window & {
+      lamejs?: { Mp3Encoder?: Mp3EncoderCtor };
+    };
+    return w.lamejs?.Mp3Encoder;
+  };
+
+  const existing = getCtorFromWindow();
+  if (existing) return existing;
+
+  await new Promise<void>((resolve, reject) => {
+    const scriptId = "lamejs-vendor-script";
+    const already = document.getElementById(scriptId) as HTMLScriptElement | null;
+    if (already) {
+      const checkLoaded = () => {
+        if (getCtorFromWindow()) {
+          resolve();
+          return true;
+        }
+        return false;
+      };
+      if (checkLoaded()) return;
+      already.addEventListener("load", () => {
+        if (checkLoaded()) return;
+        reject(new Error("MP3 encoder did not initialize."));
+      }, { once: true });
+      already.addEventListener("error", () => reject(new Error("Failed to load MP3 encoder.")), {
+        once: true,
+      });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = scriptId;
+    script.src = "/vendor/lame.all.js";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load MP3 encoder."));
+    document.head.appendChild(script);
+  });
+
+  const loaded = getCtorFromWindow();
+  if (!loaded) throw new Error("MP3 encoder unavailable after script load.");
+  return loaded;
+}
+
+async function loadMp3EncoderCtor(): Promise<Mp3EncoderCtor> {
+  // Force the vendor UMD build, because the npm module path can throw
+  // `MPEGMode is not defined` in browser-bundled environments.
+  return loadMp3EncoderFromVendorScript();
+}
+
+async function encodeAudioBufferToMp3(audioBuffer: AudioBuffer) {
+  const channels = Math.max(1, Math.min(2, audioBuffer.numberOfChannels));
+  const left = toInt16Pcm(audioBuffer.getChannelData(0));
+  const right = channels === 2 ? toInt16Pcm(audioBuffer.getChannelData(1)) : left;
+  const Mp3EncoderCtor = await loadMp3EncoderCtor();
+  const encoder = new Mp3EncoderCtor(channels, audioBuffer.sampleRate, 192);
+  const blockSize = 1152;
+  const mp3Chunks: Uint8Array[] = [];
+
+  if (channels === 2) {
+    for (let i = 0; i < left.length; i += blockSize) {
+      const leftChunk = left.subarray(i, i + blockSize);
+      const rightChunk = right.subarray(i, i + blockSize);
+      const encoded = encoder.encodeBuffer(leftChunk, rightChunk);
+      if (encoded.length > 0) mp3Chunks.push(new Uint8Array(encoded));
+    }
+  } else {
+    for (let i = 0; i < left.length; i += blockSize) {
+      const chunk = left.subarray(i, i + blockSize);
+      const encoded = encoder.encodeBuffer(chunk);
+      if (encoded.length > 0) mp3Chunks.push(new Uint8Array(encoded));
+    }
+  }
+
+  const flushed = encoder.flush();
+  if (flushed.length > 0) mp3Chunks.push(new Uint8Array(flushed));
+  return new Blob(mp3Chunks, { type: "audio/mpeg" });
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [authReady, setAuthReady] = useState(false);
   const [songs, setSongs] = useState<SongRow[]>([]);
   const [openMenuSongId, setOpenMenuSongId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [exportingId, setExportingId] = useState<string | null>(null);
   const [activeSongId, setActiveSongId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackProgress, setPlaybackProgress] = useState(0);
@@ -519,26 +620,46 @@ export default function DashboardPage() {
         .filter((clip) => clip.startStep16 === step16);
       for (const clip of vocalClipsNow) {
         const reverb = reverbRef.current;
-        if (!reverb) continue;
-
-        const clipGain = Math.max(0, Math.min(1, clip.gain ?? 1));
-        const gain = new Tone.Gain(clipGain);
-        const player = new Tone.Player({
-          url: clip.url,
-          autostart: false,
-        });
-
-        player.connect(gain);
-        gain.connect(reverb);
-        player.start(time);
-        player.onstop = () => {
-          player.dispose();
-          gain.dispose();
-          playingVocalPlayersRef.current = playingVocalPlayersRef.current.filter(
-            (entry) => entry.player !== player
+        if (!reverb) {
+          const audio = new Audio(clip.url);
+          audio.volume = Math.max(
+            0,
+            Math.min(1, (clip.gain ?? 1) * masterVolumeRef.current)
           );
-        };
-        playingVocalPlayersRef.current.push({ player, gain });
+          audio.currentTime = 0;
+          void audio.play().catch(() => {});
+          continue;
+        }
+
+        try {
+          const clipGain = Math.max(0, Math.min(1, clip.gain ?? 1));
+          const gain = new Tone.Gain(clipGain);
+          const player = new Tone.Player({
+            url: clip.url,
+            autostart: false,
+          });
+
+          player.connect(gain);
+          gain.connect(reverb);
+          player.start(time);
+          player.onstop = () => {
+            player.dispose();
+            gain.dispose();
+            playingVocalPlayersRef.current = playingVocalPlayersRef.current.filter(
+              (entry) => entry.player !== player
+            );
+          };
+          playingVocalPlayersRef.current.push({ player, gain });
+        } catch {
+          // Fallback keeps dashboard playback alive even if Tone.Player cannot start this clip.
+          const audio = new Audio(clip.url);
+          audio.volume = Math.max(
+            0,
+            Math.min(1, (clip.gain ?? 1) * masterVolumeRef.current)
+          );
+          audio.currentTime = 0;
+          void audio.play().catch(() => {});
+        }
       }
 
       const isLastStep = step16 >= totalSteps16 - 1;
@@ -594,32 +715,193 @@ export default function DashboardPage() {
     setSongs((prev) => prev.filter((song) => song.id !== songId));
   }
 
-  function handleExport(song: SongRow) {
+  async function handleRename(songId: string, currentTitle: string | null) {
+    setOpenMenuSongId(null);
+    const currentName = (currentTitle ?? "Untitled").trim();
+    const renamed = window.prompt("Rename project", currentName);
+    if (renamed === null) return;
+
+    const nextName = renamed.trim();
+    if (!nextName) {
+      window.alert("Project name can't be empty.");
+      return;
+    }
+    if (nextName === currentName) return;
+
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from("songs")
+      .update({
+        title: nextName,
+        updated_at: now,
+      })
+      .eq("id", songId);
+
+    if (error) {
+      console.error("Error renaming song:", error);
+      window.alert("Could not rename project. Please try again.");
+      return;
+    }
+
+    setSongs((prev) =>
+      prev.map((song) =>
+        song.id === songId ? { ...song, title: nextName, updated_at: now } : song
+      )
+    );
+  }
+
+  async function handleExport(song: SongRow) {
+    if (exportingId) return;
+    setOpenMenuSongId(null);
+    setExportingId(song.id);
     const project = normalizeSongProject(song);
     const fileSafeTitle = (song.title ?? "untitled")
       .trim()
       .replace(/[^a-z0-9-_ ]/gi, "")
       .replace(/\s+/g, "-")
       .toLowerCase();
-    const exportPayload = {
-      ...project,
-      id: song.id,
-      name: song.title ?? project.name,
-      exportedAt: new Date().toISOString(),
-    };
 
-    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${fileSafeTitle || "melodica-project"}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    setOpenMenuSongId(null);
+    try {
+      const bpm = Math.max(20, Math.min(400, Number(project.bpm) || 120));
+      const step16Duration = (60 / bpm) / 4;
+      const totalSteps16 = getPlayableSteps16(project);
+      const totalDurationSeconds =
+        totalSteps16 * step16Duration + Math.max(1.5, project.settings.reverbDecay + 0.5);
+
+      const rendered = await Tone.Offline(async () => {
+        const reverbWet = Math.max(0, Math.min(1, project.settings.reverbWet ?? 0.2));
+        const master = new Tone.Gain(
+          Math.max(0, Math.min(1, project.settings.masterVolume ?? 0.9))
+        ).toDestination();
+        const dryGain = new Tone.Gain(1);
+        const wetGain = new Tone.Gain(reverbWet);
+        const reverb = new Tone.Reverb({
+          decay: Math.max(0.2, Math.min(10, project.settings.reverbDecay ?? 2.5)),
+          wet: 1,
+        });
+        await reverb.generate();
+        const sfxFilter = new Tone.Filter({
+          type: "lowpass",
+          frequency: 20000,
+          Q: 0.0001,
+        });
+        const sfxDistortion = new Tone.Distortion({
+          distortion: Math.max(0, Math.min(1, project.settings.distortionAmount ?? 0)),
+          wet: 1,
+        });
+        const preset = SFX_PRESET_SETTINGS[project.settings.sfxPreset ?? "Clean"];
+        sfxFilter.type = preset.filterType;
+        sfxFilter.frequency.value = preset.filterFrequency;
+        sfxFilter.Q.value = preset.filterQ;
+
+        dryGain.connect(sfxFilter);
+        reverb.connect(wetGain);
+        wetGain.connect(sfxFilter);
+        sfxFilter.connect(sfxDistortion);
+        sfxDistortion.connect(master);
+
+        const connect = <T extends Tone.ToneAudioNode>(node: T): T => {
+          node.connect(dryGain);
+          node.connect(reverb);
+          return node;
+        };
+
+        const synthBank = new Map<MelodyInstrument, MelodyPolySynth>();
+        const getSynth = (instrument: MelodyInstrument) => {
+          const normalized = normalizeInstrument(instrument);
+          const existing = synthBank.get(normalized);
+          if (existing) return existing;
+          const created = connect(createMelodySynthPreset(normalized));
+          synthBank.set(normalized, created);
+          return created;
+        };
+
+        for (const note of project.notes) {
+          const startTime = Math.max(0, note.startBeat * 2) * step16Duration;
+          const durationTime = Math.max(1, note.durationBeats * 2) * step16Duration;
+          getSynth(normalizeInstrument(note.instrument)).triggerAttackRelease(
+            note.pitch,
+            durationTime,
+            startTime,
+            note.velocity ?? 0.8
+          );
+        }
+
+        const kick = [
+          connect(new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 7, envelope: { attack: 0.001, decay: 0.16, sustain: 0 } })),
+          connect(new Tone.MembraneSynth({ pitchDecay: 0.06, octaves: 10, envelope: { attack: 0.001, decay: 0.30, sustain: 0 } })),
+          connect(new Tone.MembraneSynth({ pitchDecay: 0.03, octaves: 6, envelope: { attack: 0.001, decay: 0.12, sustain: 0 } })),
+        ];
+        const snare = [
+          connect(new Tone.NoiseSynth({ noise: { type: "white" }, envelope: { attack: 0.001, decay: 0.12, sustain: 0 } })),
+          connect(new Tone.NoiseSynth({ noise: { type: "pink" }, envelope: { attack: 0.001, decay: 0.18, sustain: 0 } })),
+          connect(new Tone.NoiseSynth({ noise: { type: "brown" }, envelope: { attack: 0.001, decay: 0.08, sustain: 0 } })),
+        ];
+        const hat = [
+          (() => {
+            const h = connect(new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 0.05, release: 0.01 }, harmonicity: 5.1, modulationIndex: 28, resonance: 2500, octaves: 1.2 }));
+            h.frequency.value = 250;
+            return h;
+          })(),
+          (() => {
+            const h = connect(new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 0.11, release: 0.02 }, harmonicity: 5.1, modulationIndex: 32, resonance: 3500, octaves: 1.6 }));
+            h.frequency.value = 300;
+            return h;
+          })(),
+          (() => {
+            const h = connect(new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 0.07, release: 0.01 }, harmonicity: 5.1, modulationIndex: 40, resonance: 5200, octaves: 1.4 }));
+            h.frequency.value = 220;
+            return h;
+          })(),
+        ];
+        const tom = [
+          connect(new Tone.MembraneSynth({ pitchDecay: 0.03, octaves: 4, envelope: { attack: 0.001, decay: 0.22, sustain: 0 } })),
+          connect(new Tone.MembraneSynth({ pitchDecay: 0.025, octaves: 3, envelope: { attack: 0.001, decay: 0.20, sustain: 0 } })),
+          connect(new Tone.MembraneSynth({ pitchDecay: 0.02, octaves: 2, envelope: { attack: 0.001, decay: 0.18, sustain: 0 } })),
+        ];
+
+        for (const hit of project.drumTracks.flatMap((track) => track.hits)) {
+          const when = Math.max(0, hit.step) * step16Duration;
+          const velocity = hit.velocity ?? 0.9;
+          const variant = hit.variant ?? 0;
+          if (hit.drum === "kick") kick[variant]?.triggerAttackRelease("C1", "16n", when, velocity);
+          if (hit.drum === "snare") snare[variant]?.triggerAttackRelease("16n", when, velocity);
+          if (hit.drum === "hat") hat[variant]?.triggerAttackRelease("16n", when, velocity);
+          if (hit.drum === "tom") tom[variant]?.triggerAttackRelease("G2", "16n", when, velocity);
+        }
+
+        const vocalClips = project.audioTracks.flatMap((track) => track.clips);
+        await Promise.all(
+          vocalClips.map(async (clip) => {
+            try {
+              const clipGain = new Tone.Gain(Math.max(0, Math.min(1, clip.gain ?? 1)));
+              const player = new Tone.Player({ autostart: false });
+              player.connect(clipGain);
+              clipGain.connect(reverb);
+              await player.load(clip.url);
+              player.start(Math.max(0, clip.startStep16) * step16Duration);
+            } catch {
+              // skip clips that fail to load during export
+            }
+          })
+        );
+      }, totalDurationSeconds);
+
+      const mp3Blob = await encodeAudioBufferToMp3(rendered);
+      const url = URL.createObjectURL(mp3Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${fileSafeTitle || "melodica-project"}.mp3`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error exporting MP3:", error);
+      window.alert("MP3 export failed. Please try again.");
+    } finally {
+      setExportingId(null);
+    }
   }
 
   async function handleLogout() {
@@ -705,8 +987,8 @@ export default function DashboardPage() {
                       >
                         {activeSongId === song.id && isPlaying ? (
                           <span className="flex items-center gap-1">
-                            <span className="h-4 w-1.5 rounded-sm bg-current" />
-                            <span className="h-4 w-1.5 rounded-sm bg-current" />
+                            <span className="h-4 w-1 rounded-sm bg-current" />
+                            <span className="h-4 w-1 rounded-sm bg-current" />
                           </span>
                         ) : (
                           "▶"
@@ -754,10 +1036,18 @@ export default function DashboardPage() {
                         <div className="absolute bottom-full right-0 z-40 mb-2 w-36 rounded-lg border border-white/60 bg-white/90 p-1.5 shadow-xl backdrop-blur-md dark:border-white/15 dark:bg-zinc-900/90">
                           <button
                             type="button"
-                            onClick={() => handleExport(song)}
+                            onClick={() => void handleRename(song.id, song.title)}
                             className="w-full rounded-md px-3 py-1.5 text-left text-sm text-slate-800 transition-all duration-150 hover:bg-white hover:shadow-[0_0_14px_rgba(255,255,255,0.65)] dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_14px_rgba(255,255,255,0.35)]"
                           >
-                            Export
+                            Rename
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleExport(song)}
+                            disabled={exportingId === song.id}
+                            className="mt-1 w-full rounded-md px-3 py-1.5 text-left text-sm text-slate-800 transition-all duration-150 hover:bg-white hover:shadow-[0_0_14px_rgba(255,255,255,0.65)] disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_14px_rgba(255,255,255,0.35)]"
+                          >
+                            {exportingId === song.id ? "Exporting..." : "Export"}
                           </button>
                           <button
                             type="button"

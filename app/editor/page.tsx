@@ -22,7 +22,6 @@ import { NoteOptionsMenu } from "./NoteOptionsMenu";
 import { supabase } from "@/lib/supabase";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEditorSave } from "./hooks/useEditorSave";
-import { useCursorGlow } from "./hooks/useCursorGlow";
 
 const ALL_KEYS = new Set<KeyRoot>([...ALL_MAJOR_KEYS, ...ALL_MINOR_KEYS]);
 const AUDIO_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_AUDIO_BUCKET || "audio-clips";
@@ -345,7 +344,6 @@ export default function EditorPage() {
   const [drumViewportWidth, setDrumViewportWidth] = useState(() =>
     typeof window === "undefined" ? FALLBACK_DRUM_VIEWPORT_WIDTH : window.innerWidth
   );
-  const cursorGlowRef = useCursorGlow(authReady);
   const playheadStep16Ref = useRef(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -1422,10 +1420,6 @@ export default function EditorPage() {
 
   return (
     <main className="flex h-screen flex-col bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
-      <div
-        ref={cursorGlowRef}
-        className="pointer-events-none fixed left-0 top-0 z-50 h-44 w-44 rounded-full bg-white/35 opacity-0 blur-[56px] transition-opacity duration-200"
-      />
       <EditorHeader
         onExport={handleExport}
         onBackToDashboard={handleBackToDashboard}

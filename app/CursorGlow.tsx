@@ -2,16 +2,15 @@
 
 import { useEffect, useRef } from "react";
 
-export function useCursorGlow(authReady: boolean) {
-  const cursorGlowRef = useRef<HTMLDivElement | null>(null);
+export function CursorGlow() {
+  const glowRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!authReady) return;
     if (typeof window === "undefined") return;
     const canHover = window.matchMedia("(pointer: fine)").matches;
     if (!canHover) return;
 
-    const glow = cursorGlowRef.current;
+    const glow = glowRef.current;
     if (!glow) return;
 
     const onPointerMove = (event: PointerEvent) => {
@@ -32,7 +31,12 @@ export function useCursorGlow(authReady: boolean) {
       window.removeEventListener("pointerleave", hideGlow);
       window.removeEventListener("blur", hideGlow);
     };
-  }, [authReady]);
+  }, []);
 
-  return cursorGlowRef;
+  return (
+    <div
+      ref={glowRef}
+      className="pointer-events-none fixed left-0 top-0 z-50 h-44 w-44 rounded-full bg-white/35 opacity-0 blur-[56px] transition-opacity duration-200"
+    />
+  );
 }
