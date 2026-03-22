@@ -1,7 +1,7 @@
 "use client";
 
 import * as Tone from "tone";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createDefaultProject } from "@/lib/defaultProject";
 import { getPitches, ALL_MAJOR_KEYS, ALL_MINOR_KEYS } from "@/lib/pitches";
 import type { KeyRoot } from "@/lib/pitches";
@@ -41,6 +41,7 @@ const SFX_PRESET_SETTINGS: Record<
   Telephone: { filterType: "bandpass", filterFrequency: 1300, filterQ: 1.5 },
   Crunch: { filterType: "lowpass", filterFrequency: 9000, filterQ: 0.6 },
 };
+const AUTOSAVE_DELAY_MS = 1200;
 
 function getBestRecorderMimeType() {
   const candidates = [
@@ -285,8 +286,15 @@ export default function EditorPage() {
   const [defaultInstrument, setDefaultInstrument] = useState<MelodyInstrument>("Triangle");
   const [noteMenu, setNoteMenu] = useState<NoteMenuState | null>(null);
   const [songId, setSongId] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<"saving" | "saved" | "error">("saved");
   const projectSnapshot = useMemo(() => JSON.stringify(project), [project]);
   const hasUnsavedChanges = projectSnapshot !== lastSavedSnapshotRef.current;
+  const saveInFlightRef = useRef(false);
+  const saveQueuedRef = useRef(false);
+  const latestProjectRef = useRef(project);
+  const latestProjectSnapshotRef = useRef(projectSnapshot);
+  const songIdRef = useRef<string | null>(songId);
+  const initializedNewProjectSnapshotRef = useRef(false);
 
   const signatureNotesRef = useRef<Record<string, NoteEvent[]>>({});
 
@@ -333,6 +341,7 @@ export default function EditorPage() {
   const [drumViewportWidth, setDrumViewportWidth] = useState(() =>
     typeof window === "undefined" ? FALLBACK_DRUM_VIEWPORT_WIDTH : window.innerWidth
   );
+  const cursorGlowRef = useRef<HTMLDivElement | null>(null);
   const playheadStep16Ref = useRef(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -346,6 +355,22 @@ export default function EditorPage() {
   const previousIsPlayingRef = useRef(false);
   const masterVolumeRef = useRef(project.settings.masterVolume);
   const previousMasterVolumeRef = useRef(project.settings.masterVolume);
+
+  useEffect(() => {
+    latestProjectRef.current = project;
+    latestProjectSnapshotRef.current = projectSnapshot;
+  }, [project, projectSnapshot]);
+
+  useEffect(() => {
+    songIdRef.current = songId;
+  }, [songId]);
+
+  useEffect(() => {
+    if (initializedNewProjectSnapshotRef.current) return;
+    if (songIdFromUrl) return;
+    lastSavedSnapshotRef.current = projectSnapshot;
+    initializedNewProjectSnapshotRef.current = true;
+  }, [projectSnapshot, songIdFromUrl]);
 
   const notePlayheadPx = (currentStep16 / 2) * CELL_W;
   const playheadLeftOfView = notePlayheadPx < scrollLeft;
@@ -920,60 +945,81 @@ export default function EditorPage() {
       tomRef.current[variant]?.triggerAttackRelease("G2", "16n", undefined, velocity);
   };
 
- const handleSave = async () => {
-  console.log("songId before save:", songId);
-  const now = new Date().toISOString();
-
-  if (songId) {
-    console.log("RUNNING UPDATE");
-
-    const { data, error } = await supabase
-      .from("songs")
-      .update({
-        title: project.name || "Untitled",
-        bpm: project.bpm || 120,
-        project_data: project,
-        updated_at: now,
-
-      })
-      .eq("id", songId)
-      .select()
-      .single();
-
-    console.log("update data:", data);
-    console.log("update error:", error);
-    if (!error) {
-      lastSavedSnapshotRef.current = JSON.stringify(project);
+  const persistLatestProject = useCallback(async () => {
+    if (!authReady) return false;
+    if (songIdFromUrl && !songIdRef.current) return false;
+    if (saveInFlightRef.current) {
+      saveQueuedRef.current = true;
+      setSaveStatus("saving");
+      return false;
     }
 
-  } else {
-    console.log("RUNNING INSERT");
+    saveInFlightRef.current = true;
+    setSaveStatus("saving");
+    let savedAtLeastOnce = false;
+    let saveFailed = false;
 
-    const { data, error } = await supabase
-      .from("songs")
-      .insert([
-        {
-          title: project.name || "Untitled",
-          bpm: project.bpm || 120,
-          project_data: project,
-          created_at: now,
-          updated_at: now,
+    try {
+      do {
+        saveQueuedRef.current = false;
 
-        },
-      ])
-      .select()
-      .single();
+        const projectToSave = latestProjectRef.current;
+        const snapshotToSave = latestProjectSnapshotRef.current;
+        if (snapshotToSave === lastSavedSnapshotRef.current) continue;
 
-    console.log("insert data:", data);
-    console.log("insert error:", error);
+        const now = new Date().toISOString();
+        const currentSongId = songIdRef.current;
 
-    if (data) {
-      console.log("setting songId to:", data.id);
-      setSongId(data.id);
-      lastSavedSnapshotRef.current = JSON.stringify(project);
+        if (currentSongId) {
+          const { error } = await supabase
+            .from("songs")
+            .update({
+              title: projectToSave.name || "Untitled",
+              bpm: projectToSave.bpm || 120,
+              project_data: projectToSave,
+              updated_at: now,
+            })
+            .eq("id", currentSongId);
+
+          if (error) {
+            saveFailed = true;
+            break;
+          }
+          lastSavedSnapshotRef.current = snapshotToSave;
+          savedAtLeastOnce = true;
+        } else {
+          const { data, error } = await supabase
+            .from("songs")
+            .insert([
+              {
+                title: projectToSave.name || "Untitled",
+                bpm: projectToSave.bpm || 120,
+                project_data: projectToSave,
+                created_at: now,
+                updated_at: now,
+              },
+            ])
+            .select("id")
+            .single();
+
+          if (error || !data?.id) {
+            saveFailed = true;
+            break;
+          }
+          setSongId(data.id);
+          songIdRef.current = data.id;
+          lastSavedSnapshotRef.current = snapshotToSave;
+          savedAtLeastOnce = true;
+        }
+      } while (saveQueuedRef.current || latestProjectSnapshotRef.current !== lastSavedSnapshotRef.current);
+    } finally {
+      saveInFlightRef.current = false;
     }
-  }
-};
+
+    setSaveStatus(saveFailed ? "error" : "saved");
+
+    return savedAtLeastOnce;
+  }, [authReady, songIdFromUrl]);
 
   const handleExport = () => {
     const payload = {
@@ -999,15 +1045,34 @@ export default function EditorPage() {
     URL.revokeObjectURL(url);
   };
 
-  const handleBackToDashboard = () => {
+  const handleBackToDashboard = async () => {
     if (hasUnsavedChanges) {
+      await persistLatestProject();
+    }
+    if (latestProjectSnapshotRef.current !== lastSavedSnapshotRef.current) {
       const confirmed = window.confirm(
-        "You have unsaved changes. Leave editor without saving?"
+        "We couldn't finish autosaving your latest changes. Leave editor anyway?"
       );
       if (!confirmed) return;
     }
     router.push("/dashboard");
   };
+
+  useEffect(() => {
+    if (!authReady) return;
+    setSaveStatus(hasUnsavedChanges ? "saving" : "saved");
+  }, [authReady, hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (!authReady) return;
+    if (!hasUnsavedChanges) return;
+
+    const timer = window.setTimeout(() => {
+      void persistLatestProject();
+    }, AUTOSAVE_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [authReady, hasUnsavedChanges, projectSnapshot, persistLatestProject]);
 
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -1435,6 +1500,34 @@ export default function EditorPage() {
   }, [notesMuted]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const canHover = window.matchMedia("(pointer: fine)").matches;
+    if (!canHover) return;
+
+    const glow = cursorGlowRef.current;
+    if (!glow) return;
+
+    const onPointerMove = (event: PointerEvent) => {
+      glow.style.opacity = "1";
+      glow.style.transform = `translate3d(${event.clientX - 88}px, ${event.clientY - 88}px, 0)`;
+    };
+
+    const hideGlow = () => {
+      glow.style.opacity = "0";
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerleave", hideGlow);
+    window.addEventListener("blur", hideGlow);
+
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerleave", hideGlow);
+      window.removeEventListener("blur", hideGlow);
+    };
+  }, []);
+
+  useEffect(() => {
     const wasPlaying = previousIsPlayingRef.current;
     if (wasPlaying && !isPlaying && isRecordingVocals) {
       const recorder = mediaRecorderRef.current;
@@ -1448,9 +1541,22 @@ export default function EditorPage() {
 
   if (!authReady) {
     return (
-      <main className="flex h-screen flex-col bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
-        <div className="m-6 rounded-xl border border-white/60 bg-white/50 p-4 text-sm opacity-80 backdrop-blur dark:border-white/10 dark:bg-zinc-900/35">
-          Checking session...
+      <main className="flex h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
+        <div className="rounded-2xl border border-white/60 bg-white/60 px-8 py-6 text-center backdrop-blur-md dark:border-white/10 dark:bg-zinc-900/40">
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+            Loading your session
+          </p>
+          <div className="mt-4 flex items-center justify-center gap-2" aria-label="Loading" role="status">
+            <span className="h-2.5 w-2.5 animate-bounce rounded-full bg-slate-500 dark:bg-slate-300" />
+            <span
+              className="h-2.5 w-2.5 animate-bounce rounded-full bg-slate-500 dark:bg-slate-300"
+              style={{ animationDelay: "120ms" }}
+            />
+            <span
+              className="h-2.5 w-2.5 animate-bounce rounded-full bg-slate-500 dark:bg-slate-300"
+              style={{ animationDelay: "240ms" }}
+            />
+          </div>
         </div>
       </main>
     );
@@ -1458,10 +1564,14 @@ export default function EditorPage() {
 
   return (
     <main className="flex h-screen flex-col bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
+      <div
+        ref={cursorGlowRef}
+        className="pointer-events-none fixed left-0 top-0 z-50 h-44 w-44 rounded-full bg-white/45 opacity-0 blur-[56px] mix-blend-screen transition-opacity duration-200"
+      />
       <EditorHeader
-        onSave={handleSave}
         onExport={handleExport}
         onBackToDashboard={handleBackToDashboard}
+        saveStatus={saveStatus}
         projectName={project.name}
         onProjectNameChange={(name) =>
           setProject((p) => ({

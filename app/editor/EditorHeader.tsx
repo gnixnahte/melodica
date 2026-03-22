@@ -1,22 +1,31 @@
 "use client";
 
 export interface EditorHeaderProps {
-  onSave: () => void;
   onExport: () => void;
-  onBackToDashboard: () => void;
+  onBackToDashboard: () => void | Promise<void>;
+  saveStatus: "saving" | "saved" | "error";
   projectName: string;
   onProjectNameChange: (name: string) => void;
 }
 
 export function EditorHeader({
-  onSave,
   onExport,
   onBackToDashboard,
+  saveStatus,
   projectName,
   onProjectNameChange,
 }: EditorHeaderProps) {
+  const statusLabel =
+    saveStatus === "saving" ? "Saving..." : saveStatus === "error" ? "Save failed" : "Saved";
+  const statusClassName =
+    saveStatus === "saving"
+      ? "text-amber-700 dark:text-amber-300"
+      : saveStatus === "error"
+        ? "text-rose-700 dark:text-rose-300"
+        : "text-emerald-700 dark:text-emerald-300";
+
   return (
-    <header className="sticky top-0 z-40 flex items-center justify-between border-b border-white/60 bg-white/45 px-4 py-3 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35">
+    <header className="sticky top-0 z-40 flex items-center justify-between border-b border-white/60 bg-white/45 px-4 py-3 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 relative">
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-bold">Editor</h1>
         <input
@@ -27,14 +36,13 @@ export function EditorHeader({
           className="min-w-48 rounded-lg border border-white/70 bg-white/70 px-3 py-1.5 text-sm text-slate-800 outline-none ring-0 transition-colors focus:border-slate-400 dark:border-white/15 dark:bg-zinc-800/60 dark:text-slate-100"
         />
       </div>
+      <span
+        aria-live="polite"
+        className={`pointer-events-none absolute left-1/2 -translate-x-1/2 text-xs font-medium ${statusClassName}`}
+      >
+        {statusLabel}
+      </span>
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onSave}
-          className="rounded-lg border border-white/70 bg-white/70 px-4 py-2 text-sm text-slate-800 transition-all duration-200 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.7)] dark:border-white/15 dark:bg-zinc-800/60 dark:text-slate-100 dark:hover:bg-zinc-700/70 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
-        >
-          Save
-        </button>
         <button
           type="button"
           onClick={onExport}
@@ -44,7 +52,9 @@ export function EditorHeader({
         </button>
         <button
           type="button"
-          onClick={onBackToDashboard}
+          onClick={() => {
+            void onBackToDashboard();
+          }}
           className="rounded-lg border border-white/70 bg-white/70 px-4 py-2 text-sm text-slate-800 transition-all duration-200 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.7)] dark:border-white/15 dark:bg-zinc-800/60 dark:text-slate-100 dark:hover:bg-zinc-700/70 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
         >
           Back to Dashboard
