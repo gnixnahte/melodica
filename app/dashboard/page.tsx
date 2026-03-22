@@ -184,17 +184,22 @@ export default function DashboardPage() {
   const snareRef = useRef<Tone.NoiseSynth[]>([]);
   const hatRef = useRef<Tone.MetalSynth[]>([]);
   const tomRef = useRef<Tone.MembraneSynth[]>([]);
-  const playingVocalAudioRef = useRef<HTMLAudioElement[]>([]);
+  const playingVocalPlayersRef = useRef<Array<{ player: Tone.Player; gain: Tone.Gain }>>([]);
   const masterVolumeRef = useRef(0.9);
   const playbackStepRef = useRef(0);
   const totalStepsRef = useRef(1);
 
   const stopAllVocalAudio = () => {
-    for (const audio of playingVocalAudioRef.current) {
-      audio.pause();
-      audio.currentTime = 0;
+    for (const { player, gain } of playingVocalPlayersRef.current) {
+      try {
+        player.stop();
+      } catch {
+        // no-op: player may already be stopped/disposed
+      }
+      player.dispose();
+      gain.dispose();
     }
-    playingVocalAudioRef.current = [];
+    playingVocalPlayersRef.current = [];
   };
 
   const clearPlayback = () => {
@@ -205,7 +210,7 @@ export default function DashboardPage() {
     stopAllVocalAudio();
     Tone.Transport.stop();
     Tone.Transport.cancel();
-    Tone.Transport.position = 0;
+    Tone.Transport.set({ position: 0 });
     playbackStepRef.current = 0;
     totalStepsRef.current = 1;
   };
@@ -513,14 +518,27 @@ export default function DashboardPage() {
         .flatMap((track) => track.clips)
         .filter((clip) => clip.startStep16 === step16);
       for (const clip of vocalClipsNow) {
-        const audio = new Audio(clip.url);
-        audio.volume = Math.max(
-          0,
-          Math.min(1, (clip.gain ?? 1) * masterVolumeRef.current)
-        );
-        audio.currentTime = 0;
-        audio.play().catch(() => {});
-        playingVocalAudioRef.current.push(audio);
+        const reverb = reverbRef.current;
+        if (!reverb) continue;
+
+        const clipGain = Math.max(0, Math.min(1, clip.gain ?? 1));
+        const gain = new Tone.Gain(clipGain);
+        const player = new Tone.Player({
+          url: clip.url,
+          autostart: false,
+        });
+
+        player.connect(gain);
+        gain.connect(reverb);
+        player.start(time);
+        player.onstop = () => {
+          player.dispose();
+          gain.dispose();
+          playingVocalPlayersRef.current = playingVocalPlayersRef.current.filter(
+            (entry) => entry.player !== player
+          );
+        };
+        playingVocalPlayersRef.current.push({ player, gain });
       }
 
       const isLastStep = step16 >= totalSteps16 - 1;
@@ -679,8 +697,21 @@ export default function DashboardPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="font-medium">{song.title}</p>
-                    <p className="text-xs opacity-70">BPM: {song.bpm}</p>
                     <div className="mt-2 flex items-center gap-2">
+                      <button
+                        onClick={() => void handlePlayPause(song)}
+                        aria-label={activeSongId === song.id && isPlaying ? "Pause" : "Play"}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-300/80 bg-white/70 text-sm text-slate-800 transition-all duration-200 hover:border-white/95 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:border-white/15 dark:bg-zinc-700/50 dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
+                      >
+                        {activeSongId === song.id && isPlaying ? (
+                          <span className="flex items-center gap-1">
+                            <span className="h-4 w-1.5 rounded-sm bg-current" />
+                            <span className="h-4 w-1.5 rounded-sm bg-current" />
+                          </span>
+                        ) : (
+                          "▶"
+                        )}
+                      </button>
                       <input
                         type="range"
                         min={0}
@@ -701,13 +732,7 @@ export default function DashboardPage() {
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => void handlePlayPause(song)}
-                      className="rounded-md border border-slate-300/80 bg-white/70 px-3 py-1 text-sm text-slate-800 transition-all duration-200 hover:border-white/95 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:border-white/15 dark:bg-zinc-700/50 dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
-                    >
-                      {activeSongId === song.id && isPlaying ? "Pause" : "Play"}
-                    </button>
+                  <div className="flex items-center gap-2 self-center">
                     <button
                       onClick={() => router.push(`/editor?id=${song.id}`)}
                       className="rounded-md border border-slate-300/80 bg-white/70 px-3 py-1 text-sm text-slate-800 transition-all duration-200 hover:border-white/95 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:border-white/15 dark:bg-zinc-700/50 dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"

@@ -1,7 +1,7 @@
 "use client";
 
 import * as Tone from "tone";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createDefaultProject } from "@/lib/defaultProject";
 import { getPitches, ALL_MAJOR_KEYS, ALL_MINOR_KEYS } from "@/lib/pitches";
 import type { KeyRoot } from "@/lib/pitches";
@@ -21,6 +21,8 @@ import { DrumSequencer } from "./DrumSequencer";
 import { NoteOptionsMenu } from "./NoteOptionsMenu";
 import { supabase } from "@/lib/supabase";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useEditorSave } from "./hooks/useEditorSave";
+import { useCursorGlow } from "./hooks/useCursorGlow";
 
 const ALL_KEYS = new Set<KeyRoot>([...ALL_MAJOR_KEYS, ...ALL_MINOR_KEYS]);
 const AUDIO_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_AUDIO_BUCKET || "audio-clips";
@@ -41,7 +43,6 @@ const SFX_PRESET_SETTINGS: Record<
   Telephone: { filterType: "bandpass", filterFrequency: 1300, filterQ: 1.5 },
   Crunch: { filterType: "lowpass", filterFrequency: 9000, filterQ: 0.6 },
 };
-const AUTOSAVE_DELAY_MS = 1200;
 
 function getBestRecorderMimeType() {
   const candidates = [
@@ -190,7 +191,6 @@ export default function EditorPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const songIdFromUrl = searchParams.get("id");
-  const lastSavedSnapshotRef = useRef("");
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
@@ -222,32 +222,6 @@ export default function EditorPage() {
       authListener.subscription.unsubscribe();
     };
   }, [router]);
-  
-  useEffect(() => {
-    async function loadSong() {
-      if (!authReady) return;
-      if (!songIdFromUrl) return;
-
-      const { data, error } = await supabase
-        .from("songs")
-        .select("*")
-        .eq("id", songIdFromUrl)
-        .single();
-
-      if (error || !data) return;
-
-      setSongId(data.id);
-      const loaded = normalizeLoadedProject(data);
-      setProject(loaded);
-      lastSavedSnapshotRef.current = JSON.stringify(loaded);
-      setBpmText(String(loaded.bpm));
-      setBarsText(String(loaded.bars));
-      setLowOctaveText(String(loaded.lowOctave));
-      setHighOctaveText(String(loaded.highOctave));
-    }
-
-    loadSong();
-  }, [authReady, songIdFromUrl]);
   
   type NoteMenuState = {
     noteId: string;
@@ -286,15 +260,45 @@ export default function EditorPage() {
   const [defaultInstrument, setDefaultInstrument] = useState<MelodyInstrument>("Triangle");
   const [noteMenu, setNoteMenu] = useState<NoteMenuState | null>(null);
   const [songId, setSongId] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<"saving" | "saved" | "error">("saved");
-  const projectSnapshot = useMemo(() => JSON.stringify(project), [project]);
-  const hasUnsavedChanges = projectSnapshot !== lastSavedSnapshotRef.current;
-  const saveInFlightRef = useRef(false);
-  const saveQueuedRef = useRef(false);
-  const latestProjectRef = useRef(project);
-  const latestProjectSnapshotRef = useRef(projectSnapshot);
-  const songIdRef = useRef<string | null>(songId);
-  const initializedNewProjectSnapshotRef = useRef(false);
+  const {
+    hasUnsavedChanges,
+    hasUnsavedChangesNow,
+    markSnapshotAsSaved,
+    persistLatestProject,
+    saveStatus,
+  } = useEditorSave({
+    authReady,
+    songIdFromUrl,
+    project,
+    songId,
+    setSongId,
+  });
+
+  useEffect(() => {
+    async function loadSong() {
+      if (!authReady) return;
+      if (!songIdFromUrl) return;
+
+      const { data, error } = await supabase
+        .from("songs")
+        .select("*")
+        .eq("id", songIdFromUrl)
+        .single();
+
+      if (error || !data) return;
+
+      setSongId(data.id);
+      const loaded = normalizeLoadedProject(data);
+      setProject(loaded);
+      markSnapshotAsSaved(JSON.stringify(loaded));
+      setBpmText(String(loaded.bpm));
+      setBarsText(String(loaded.bars));
+      setLowOctaveText(String(loaded.lowOctave));
+      setHighOctaveText(String(loaded.highOctave));
+    }
+
+    void loadSong();
+  }, [authReady, markSnapshotAsSaved, songIdFromUrl]);
 
   const signatureNotesRef = useRef<Record<string, NoteEvent[]>>({});
 
@@ -341,7 +345,7 @@ export default function EditorPage() {
   const [drumViewportWidth, setDrumViewportWidth] = useState(() =>
     typeof window === "undefined" ? FALLBACK_DRUM_VIEWPORT_WIDTH : window.innerWidth
   );
-  const cursorGlowRef = useRef<HTMLDivElement | null>(null);
+  const cursorGlowRef = useCursorGlow(authReady);
   const playheadStep16Ref = useRef(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -355,22 +359,6 @@ export default function EditorPage() {
   const previousIsPlayingRef = useRef(false);
   const masterVolumeRef = useRef(project.settings.masterVolume);
   const previousMasterVolumeRef = useRef(project.settings.masterVolume);
-
-  useEffect(() => {
-    latestProjectRef.current = project;
-    latestProjectSnapshotRef.current = projectSnapshot;
-  }, [project, projectSnapshot]);
-
-  useEffect(() => {
-    songIdRef.current = songId;
-  }, [songId]);
-
-  useEffect(() => {
-    if (initializedNewProjectSnapshotRef.current) return;
-    if (songIdFromUrl) return;
-    lastSavedSnapshotRef.current = projectSnapshot;
-    initializedNewProjectSnapshotRef.current = true;
-  }, [projectSnapshot, songIdFromUrl]);
 
   const notePlayheadPx = (currentStep16 / 2) * CELL_W;
   const playheadLeftOfView = notePlayheadPx < scrollLeft;
@@ -945,82 +933,6 @@ export default function EditorPage() {
       tomRef.current[variant]?.triggerAttackRelease("G2", "16n", undefined, velocity);
   };
 
-  const persistLatestProject = useCallback(async () => {
-    if (!authReady) return false;
-    if (songIdFromUrl && !songIdRef.current) return false;
-    if (saveInFlightRef.current) {
-      saveQueuedRef.current = true;
-      setSaveStatus("saving");
-      return false;
-    }
-
-    saveInFlightRef.current = true;
-    setSaveStatus("saving");
-    let savedAtLeastOnce = false;
-    let saveFailed = false;
-
-    try {
-      do {
-        saveQueuedRef.current = false;
-
-        const projectToSave = latestProjectRef.current;
-        const snapshotToSave = latestProjectSnapshotRef.current;
-        if (snapshotToSave === lastSavedSnapshotRef.current) continue;
-
-        const now = new Date().toISOString();
-        const currentSongId = songIdRef.current;
-
-        if (currentSongId) {
-          const { error } = await supabase
-            .from("songs")
-            .update({
-              title: projectToSave.name || "Untitled",
-              bpm: projectToSave.bpm || 120,
-              project_data: projectToSave,
-              updated_at: now,
-            })
-            .eq("id", currentSongId);
-
-          if (error) {
-            saveFailed = true;
-            break;
-          }
-          lastSavedSnapshotRef.current = snapshotToSave;
-          savedAtLeastOnce = true;
-        } else {
-          const { data, error } = await supabase
-            .from("songs")
-            .insert([
-              {
-                title: projectToSave.name || "Untitled",
-                bpm: projectToSave.bpm || 120,
-                project_data: projectToSave,
-                created_at: now,
-                updated_at: now,
-              },
-            ])
-            .select("id")
-            .single();
-
-          if (error || !data?.id) {
-            saveFailed = true;
-            break;
-          }
-          setSongId(data.id);
-          songIdRef.current = data.id;
-          lastSavedSnapshotRef.current = snapshotToSave;
-          savedAtLeastOnce = true;
-        }
-      } while (saveQueuedRef.current || latestProjectSnapshotRef.current !== lastSavedSnapshotRef.current);
-    } finally {
-      saveInFlightRef.current = false;
-    }
-
-    setSaveStatus(saveFailed ? "error" : "saved");
-
-    return savedAtLeastOnce;
-  }, [authReady, songIdFromUrl]);
-
   const handleExport = () => {
     const payload = {
       id: project.id,
@@ -1049,7 +961,7 @@ export default function EditorPage() {
     if (hasUnsavedChanges) {
       await persistLatestProject();
     }
-    if (latestProjectSnapshotRef.current !== lastSavedSnapshotRef.current) {
+    if (hasUnsavedChangesNow()) {
       const confirmed = window.confirm(
         "We couldn't finish autosaving your latest changes. Leave editor anyway?"
       );
@@ -1057,32 +969,6 @@ export default function EditorPage() {
     }
     router.push("/dashboard");
   };
-
-  useEffect(() => {
-    if (!authReady) return;
-    setSaveStatus(hasUnsavedChanges ? "saving" : "saved");
-  }, [authReady, hasUnsavedChanges]);
-
-  useEffect(() => {
-    if (!authReady) return;
-    if (!hasUnsavedChanges) return;
-
-    const timer = window.setTimeout(() => {
-      void persistLatestProject();
-    }, AUTOSAVE_DELAY_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [authReady, hasUnsavedChanges, projectSnapshot, persistLatestProject]);
-
-  useEffect(() => {
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!hasUnsavedChanges) return;
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [hasUnsavedChanges]);
 
 
   // Convert a click on the ruler (which is already visually scrolled via CSS transform)
@@ -1500,34 +1386,6 @@ export default function EditorPage() {
   }, [notesMuted]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const canHover = window.matchMedia("(pointer: fine)").matches;
-    if (!canHover) return;
-
-    const glow = cursorGlowRef.current;
-    if (!glow) return;
-
-    const onPointerMove = (event: PointerEvent) => {
-      glow.style.opacity = "1";
-      glow.style.transform = `translate3d(${event.clientX - 88}px, ${event.clientY - 88}px, 0)`;
-    };
-
-    const hideGlow = () => {
-      glow.style.opacity = "0";
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerleave", hideGlow);
-    window.addEventListener("blur", hideGlow);
-
-    return () => {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerleave", hideGlow);
-      window.removeEventListener("blur", hideGlow);
-    };
-  }, []);
-
-  useEffect(() => {
     const wasPlaying = previousIsPlayingRef.current;
     if (wasPlaying && !isPlaying && isRecordingVocals) {
       const recorder = mediaRecorderRef.current;
@@ -1566,7 +1424,7 @@ export default function EditorPage() {
     <main className="flex h-screen flex-col bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
       <div
         ref={cursorGlowRef}
-        className="pointer-events-none fixed left-0 top-0 z-50 h-44 w-44 rounded-full bg-white/45 opacity-0 blur-[56px] mix-blend-screen transition-opacity duration-200"
+        className="pointer-events-none fixed left-0 top-0 z-50 h-44 w-44 rounded-full bg-white/35 opacity-0 blur-[56px] transition-opacity duration-200"
       />
       <EditorHeader
         onExport={handleExport}
