@@ -323,10 +323,16 @@ export default function EditorPage() {
 
   const GRID_BEATS = project.bars * NOTE_STEPS_PER_BAR; // each column = 1 eighth note
   const DRUM_GRID_BEATS = project.bars * DRUM_STEPS_PER_BAR;
+  const FALLBACK_NOTE_VIEWPORT_WIDTH = CELL_W * NOTE_STEPS_PER_BAR * 8;
+  const FALLBACK_DRUM_VIEWPORT_WIDTH = DRUM_CELL_W * DRUM_STEPS_PER_BAR * 8;
 
   const [scrollLeft, setScrollLeft] = useState(0);
-  const [noteViewportWidth, setNoteViewportWidth] = useState(0);
-  const [drumViewportWidth, setDrumViewportWidth] = useState(0);
+  const [noteViewportWidth, setNoteViewportWidth] = useState(() =>
+    typeof window === "undefined" ? FALLBACK_NOTE_VIEWPORT_WIDTH : window.innerWidth
+  );
+  const [drumViewportWidth, setDrumViewportWidth] = useState(() =>
+    typeof window === "undefined" ? FALLBACK_DRUM_VIEWPORT_WIDTH : window.innerWidth
+  );
   const playheadStep16Ref = useRef(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -436,11 +442,12 @@ export default function EditorPage() {
   }, []);
 
   const noteWindow = useMemo(() => {
-    const viewportCols = Math.ceil(noteViewportWidth / CELL_W);
+    const effectiveViewportWidth = Math.max(noteViewportWidth, FALLBACK_NOTE_VIEWPORT_WIDTH);
+    const viewportCols = Math.ceil(effectiveViewportWidth / CELL_W);
     const start = Math.max(0, Math.floor(scrollLeft / CELL_W) - NOTE_RENDER_BUFFER_COLS);
     const end = Math.min(
       GRID_BEATS,
-      Math.ceil((scrollLeft + noteViewportWidth) / CELL_W) + NOTE_RENDER_BUFFER_COLS
+      Math.ceil((scrollLeft + effectiveViewportWidth) / CELL_W) + NOTE_RENDER_BUFFER_COLS
     );
     const safeEnd = Math.max(end, start + Math.max(1, viewportCols));
 
@@ -448,14 +455,15 @@ export default function EditorPage() {
       start,
       end: Math.min(GRID_BEATS, safeEnd),
     };
-  }, [GRID_BEATS, noteViewportWidth, scrollLeft]);
+  }, [FALLBACK_NOTE_VIEWPORT_WIDTH, GRID_BEATS, noteViewportWidth, scrollLeft]);
 
   const drumWindow = useMemo(() => {
-    const viewportSteps = Math.ceil(drumViewportWidth / DRUM_CELL_W);
+    const effectiveViewportWidth = Math.max(drumViewportWidth, FALLBACK_DRUM_VIEWPORT_WIDTH);
+    const viewportSteps = Math.ceil(effectiveViewportWidth / DRUM_CELL_W);
     const start = Math.max(0, Math.floor(scrollLeft / DRUM_CELL_W) - DRUM_RENDER_BUFFER_STEPS);
     const end = Math.min(
       DRUM_GRID_BEATS,
-      Math.ceil((scrollLeft + drumViewportWidth) / DRUM_CELL_W) + DRUM_RENDER_BUFFER_STEPS
+      Math.ceil((scrollLeft + effectiveViewportWidth) / DRUM_CELL_W) + DRUM_RENDER_BUFFER_STEPS
     );
     const safeEnd = Math.max(end, start + Math.max(1, viewportSteps));
 
@@ -463,7 +471,13 @@ export default function EditorPage() {
       start,
       end: Math.min(DRUM_GRID_BEATS, safeEnd),
     };
-  }, [DRUM_CELL_W, DRUM_GRID_BEATS, drumViewportWidth, scrollLeft]);
+  }, [
+    DRUM_CELL_W,
+    DRUM_GRID_BEATS,
+    FALLBACK_DRUM_VIEWPORT_WIDTH,
+    drumViewportWidth,
+    scrollLeft,
+  ]);
 
   // Convert "C#" + 4 => "C#4"
   const keyToMidi = (key: KeyRoot, octave = 4) =>

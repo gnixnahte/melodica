@@ -25,6 +25,11 @@ body {
   font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
 }
 
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
 .auth-glow-btn {
   transition:
     box-shadow 0.25s ease,

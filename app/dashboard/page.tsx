@@ -169,6 +169,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [authReady, setAuthReady] = useState(false);
   const [songs, setSongs] = useState<SongRow[]>([]);
+  const [openMenuSongId, setOpenMenuSongId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [activeSongId, setActiveSongId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -439,6 +440,18 @@ export default function DashboardPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const onDocumentClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest("[data-song-menu-root]")) return;
+      setOpenMenuSongId(null);
+    };
+
+    window.addEventListener("mousedown", onDocumentClick);
+    return () => window.removeEventListener("mousedown", onDocumentClick);
+  }, []);
+
   async function handlePlayPause(song: SongRow) {
     await Tone.start();
 
@@ -544,6 +557,7 @@ export default function DashboardPage() {
     if (!confirmed) return;
 
     setDeletingId(songId);
+    setOpenMenuSongId(null);
     const { error } = await supabase.from("songs").delete().eq("id", songId);
     setDeletingId(null);
 
@@ -562,12 +576,41 @@ export default function DashboardPage() {
     setSongs((prev) => prev.filter((song) => song.id !== songId));
   }
 
+  function handleExport(song: SongRow) {
+    const project = normalizeSongProject(song);
+    const fileSafeTitle = (song.title ?? "untitled")
+      .trim()
+      .replace(/[^a-z0-9-_ ]/gi, "")
+      .replace(/\s+/g, "-")
+      .toLowerCase();
+    const exportPayload = {
+      ...project,
+      id: song.id,
+      name: song.title ?? project.name,
+      exportedAt: new Date().toISOString(),
+    };
+
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${fileSafeTitle || "melodica-project"}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setOpenMenuSongId(null);
+  }
+
   async function handleLogout() {
-    const { error } = await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut({ scope: "global" });
     if (error) {
       console.error("Error signing out:", error);
     }
-    router.push("/login");
+    router.replace("/login");
+    router.refresh();
   }
 
   if (!authReady) {
@@ -603,9 +646,9 @@ export default function DashboardPage() {
       <div className="mt-6 w-full">
         <Link
           href="/editor"
-          className="auth-glow-btn flex w-full items-center justify-center rounded-xl border border-white/70 bg-white/70 px-6 py-4 text-base font-semibold text-slate-800 shadow-sm backdrop-blur transition-all duration-200 hover:border-white/95 hover:bg-white dark:border-white/15 dark:bg-zinc-800/60 dark:text-slate-100 dark:hover:bg-zinc-700/70"
+          className="flex w-full items-center justify-center rounded-xl border border-emerald-400/80 bg-emerald-500 px-6 py-4 text-base font-semibold text-white shadow-sm transition-all duration-200 hover:border-emerald-300 hover:bg-emerald-600 hover:shadow-[0_0_18px_rgba(74,222,128,0.55)] dark:border-emerald-300/50 dark:bg-emerald-400 dark:text-slate-900 dark:hover:bg-emerald-300 dark:hover:shadow-[0_0_18px_rgba(74,222,128,0.4)]"
         >
-          New Project
+          + New Project
         </Link>
       </div>
 
@@ -629,7 +672,9 @@ export default function DashboardPage() {
                 return (
               <div
                 key={song.id}
-                className="rounded-xl border border-white/60 bg-white/55 p-4 backdrop-blur dark:border-white/10 dark:bg-zinc-800/40"
+                className={`relative rounded-xl border border-white/60 bg-white/55 p-4 backdrop-blur dark:border-white/10 dark:bg-zinc-800/40 ${
+                  openMenuSongId === song.id ? "z-30" : ""
+                }`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
@@ -669,13 +714,37 @@ export default function DashboardPage() {
                     >
                       Open
                     </button>
-                    <button
-                      onClick={() => void handleDelete(song.id, song.title)}
-                      disabled={deletingId === song.id}
-                      className="delete-glow-btn rounded-md border border-red-300/70 bg-red-50/80 px-3 py-1 text-sm text-red-700 transition-all duration-200 hover:bg-red-100/80 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-300/30 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/40"
-                    >
-                      {deletingId === song.id ? "Deleting..." : "Delete"}
-                    </button>
+                    <div className="relative" data-song-menu-root>
+                      <button
+                        type="button"
+                        aria-label="Project actions"
+                        onClick={() =>
+                          setOpenMenuSongId((current) => (current === song.id ? null : song.id))
+                        }
+                        className="flex h-8 w-8 cursor-pointer items-center justify-center text-lg leading-none font-semibold text-slate-700 transition-all duration-150 hover:scale-110 hover:text-slate-900 hover:[text-shadow:0_0_10px_rgba(255,255,255,0.95)] dark:text-slate-200 dark:hover:text-white dark:hover:[text-shadow:0_0_10px_rgba(255,255,255,0.7)]"
+                      >
+                        ⋯
+                      </button>
+                      {openMenuSongId === song.id && (
+                        <div className="absolute bottom-full right-0 z-40 mb-2 w-36 rounded-lg border border-white/60 bg-white/90 p-1.5 shadow-xl backdrop-blur-md dark:border-white/15 dark:bg-zinc-900/90">
+                          <button
+                            type="button"
+                            onClick={() => handleExport(song)}
+                            className="w-full rounded-md px-3 py-1.5 text-left text-sm text-slate-800 transition-all duration-150 hover:bg-white hover:shadow-[0_0_14px_rgba(255,255,255,0.65)] dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_14px_rgba(255,255,255,0.35)]"
+                          >
+                            Export
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDelete(song.id, song.title)}
+                            disabled={deletingId === song.id}
+                            className="delete-glow-btn mt-1 w-full rounded-md px-3 py-1.5 text-left text-sm text-red-700 transition-all duration-150 hover:bg-red-100/80 disabled:cursor-not-allowed disabled:opacity-60 dark:text-red-200 dark:hover:bg-red-900/40"
+                          >
+                            {deletingId === song.id ? "Deleting..." : "Delete"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
