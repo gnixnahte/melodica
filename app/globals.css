@@ -25,6 +25,43 @@ body {
   font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
 }
 
+.auth-glow-btn {
+  transition:
+    box-shadow 0.25s ease,
+    border-color 0.25s ease;
+}
+
+.auth-glow-btn:hover,
+.auth-glow-btn:focus-visible {
+  box-shadow: 0 0 18px rgba(148, 163, 184, 0.45);
+}
+
+@media (prefers-color-scheme: dark) {
+  .auth-glow-btn:hover,
+  .auth-glow-btn:focus-visible {
+    box-shadow: 0 0 18px rgba(148, 163, 184, 0.3);
+  }
+}
+
+.delete-glow-btn {
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.delete-glow-btn:hover,
+.delete-glow-btn:focus-visible {
+  box-shadow: 0 0 16px rgba(255, 120, 120, 0.75);
+}
+
+@media (prefers-color-scheme: dark) {
+  .delete-glow-btn:hover,
+  .delete-glow-btn:focus-visible {
+    box-shadow: 0 0 16px rgba(255, 120, 120, 0.45);
+  }
+}
+
 .dashboard-slider::-webkit-slider-thumb {
   appearance: none;
   width: 16px;

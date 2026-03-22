@@ -285,7 +285,7 @@ export function DrumSequencer({
           </div>
           <button
             type="button"
-            className="w-full rounded-md border border-red-300 bg-red-500/90 px-2 py-1.5 text-left text-xs font-semibold text-white transition-all duration-200 hover:bg-red-600 hover:shadow-[0_0_16px_rgba(255,120,120,0.75)]"
+            className="delete-glow-btn w-full rounded-md border border-red-300 bg-red-500/90 px-2 py-1.5 text-left text-xs font-semibold text-white transition-all duration-200 hover:bg-red-600"
             onClick={() => {
               setProject((p) => ({
                 ...p,

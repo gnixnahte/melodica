@@ -103,7 +103,7 @@ export function NoteOptionsMenu({
         </button>
         <button
           type="button"
-          className="rounded bg-red-600 px-2 py-1 text-xs text-white transition-all duration-200 hover:bg-red-500 hover:shadow-[0_0_16px_rgba(255,120,120,0.75)]"
+          className="delete-glow-btn rounded bg-red-600 px-2 py-1 text-xs text-white transition-all duration-200 hover:bg-red-500"
           onClick={() => {
             onDelete(note.id);
             onClose();

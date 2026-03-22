@@ -9,10 +9,10 @@ export default function Home() {
           Create your own melodies with the music editor in seconds.
         </p>
         <div className="mt-6 flex gap-3">
-          <Link href="/login" className="rounded-md border border-white/70 bg-white/70 px-4 py-2 text-sm text-slate-800 shadow-sm backdrop-blur hover:bg-white dark:border-white/15 dark:bg-zinc-800/60 dark:text-slate-100 dark:hover:bg-zinc-700/70">
+          <Link href="/login" className="auth-glow-btn rounded-md border border-white/70 bg-white/70 px-4 py-2 text-sm text-slate-800 shadow-sm backdrop-blur hover:bg-white dark:border-white/15 dark:bg-zinc-800/60 dark:text-slate-100 dark:hover:bg-zinc-700/70">
             Get Started
           </Link>
-          <Link href="/dashboard" className="rounded-md border border-slate-300/80 bg-slate-800 px-4 py-2 text-sm text-white shadow-sm hover:bg-slate-700 dark:border-slate-500/50 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white">
+          <Link href="/dashboard" className="auth-glow-btn rounded-md border border-slate-300/80 bg-slate-800 px-4 py-2 text-sm text-white shadow-sm hover:bg-slate-700 dark:border-slate-500/50 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white">
             Dashboard
           </Link>
         </div>
