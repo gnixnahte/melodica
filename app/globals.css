@@ -67,6 +67,12 @@ button:not(:disabled),
   }
 }
 
+.dashboard-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  touch-action: pan-x;
+}
+
 .dashboard-slider::-webkit-slider-thumb {
   appearance: none;
   width: 16px;
@@ -75,14 +81,20 @@ button:not(:disabled),
   border: 1px solid rgba(255, 255, 255, 0.98);
   background: rgba(255, 255, 255, 1);
   box-shadow: 0 0 10px rgba(255, 255, 255, 0.7);
-  opacity: 0;
-  transition: opacity 0.15s ease;
+  opacity: 0.72;
+  transform: scale(0.96);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .dashboard-slider:hover::-webkit-slider-thumb,
 .dashboard-slider:focus-visible::-webkit-slider-thumb,
 .dashboard-slider:active::-webkit-slider-thumb {
   opacity: 1;
+  transform: scale(1);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.8);
 }
 
 .dashboard-slider::-moz-range-thumb {
@@ -92,12 +104,57 @@ button:not(:disabled),
   border: 1px solid rgba(255, 255, 255, 0.98);
   background: rgba(255, 255, 255, 1);
   box-shadow: 0 0 10px rgba(255, 255, 255, 0.7);
-  opacity: 0;
-  transition: opacity 0.15s ease;
+  opacity: 0.72;
+  transform: scale(0.96);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .dashboard-slider:hover::-moz-range-thumb,
 .dashboard-slider:focus-visible::-moz-range-thumb,
 .dashboard-slider:active::-moz-range-thumb {
   opacity: 1;
+  transform: scale(1);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.8);
+}
+
+@keyframes cursor-orbit-slow {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes cursor-orbit-mid {
+  from {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+}
+
+@keyframes cursor-orbit-fast {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+.cursor-orbit-slow {
+  animation: cursor-orbit-slow 8s linear infinite;
+}
+
+.cursor-orbit-mid {
+  animation: cursor-orbit-mid 5.8s linear infinite;
+}
+
+.cursor-orbit-fast {
+  animation: cursor-orbit-fast 4.4s linear infinite;
 }

@@ -2,7 +2,7 @@
 import Link from "next/link";
 import * as Tone from "tone";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import { createDefaultProject } from "@/lib/defaultProject";
@@ -69,6 +69,7 @@ const SFX_PRESET_SETTINGS: Record<
   Telephone: { filterType: "bandpass", filterFrequency: 1300, filterQ: 1.5 },
   Crunch: { filterType: "lowpass", filterFrequency: 9000, filterQ: 0.6 },
 };
+const COVER_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_COVER_BUCKET || "album-covers";
 
 function normalizeSongProject(song: SongRow): Project {
   const base = createDefaultProject(song.title ?? "Untitled");
@@ -163,6 +164,28 @@ function getSongDurationSeconds(song: SongRow) {
   const steps16 = getPlayableSteps16(project);
   const bpm = Math.max(20, Math.min(400, Number(project.bpm) || 120));
   return steps16 * ((60 / bpm) / 4);
+}
+
+function getSongCoverUrl(song: SongRow) {
+  const project = normalizeSongProject(song);
+  const coverUrl = project.settings.albumCoverUrl;
+  return typeof coverUrl === "string" && coverUrl.length > 0 ? coverUrl : null;
+}
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        resolve(result);
+        return;
+      }
+      reject(new Error("Failed to read image."));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read image."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function toInt16Pcm(input: Float32Array) {
@@ -268,10 +291,15 @@ async function encodeAudioBufferToMp3(audioBuffer: AudioBuffer) {
 export default function DashboardPage() {
   const router = useRouter();
   const [authReady, setAuthReady] = useState(false);
+  const [viewerName, setViewerName] = useState("there");
+  const [viewerEmail, setViewerEmail] = useState<string | null>(null);
+  const [viewerId, setViewerId] = useState<string | null>(null);
   const [songs, setSongs] = useState<SongRow[]>([]);
   const [openMenuSongId, setOpenMenuSongId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [uploadingCoverId, setUploadingCoverId] = useState<string | null>(null);
+  const [pinnedSongIds, setPinnedSongIds] = useState<string[]>([]);
   const [activeSongId, setActiveSongId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackProgress, setPlaybackProgress] = useState(0);
@@ -286,9 +314,22 @@ export default function DashboardPage() {
   const hatRef = useRef<Tone.MetalSynth[]>([]);
   const tomRef = useRef<Tone.MembraneSynth[]>([]);
   const playingVocalPlayersRef = useRef<Array<{ player: Tone.Player; gain: Tone.Gain }>>([]);
+  const coverUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const coverUploadSongRef = useRef<SongRow | null>(null);
   const masterVolumeRef = useRef(0.9);
   const playbackStepRef = useRef(0);
   const totalStepsRef = useRef(1);
+  const playbackDurationSecondsRef = useRef(0);
+  const playbackRafRef = useRef<number | null>(null);
+  const isPlayingRef = useRef(false);
+  const activeSongIdRef = useRef<string | null>(null);
+
+  const nameFromEmail = (email: string | undefined) => {
+    if (!email) return "there";
+    const [localPart] = email.split("@");
+    const clean = (localPart ?? "").trim();
+    return clean.length > 0 ? clean : "there";
+  };
 
   const stopAllVocalAudio = () => {
     for (const { player, gain } of playingVocalPlayersRef.current) {
@@ -304,6 +345,10 @@ export default function DashboardPage() {
   };
 
   const clearPlayback = () => {
+    if (playbackRafRef.current !== null) {
+      cancelAnimationFrame(playbackRafRef.current);
+      playbackRafRef.current = null;
+    }
     if (scheduleIdRef.current !== null) {
       Tone.Transport.clear(scheduleIdRef.current);
       scheduleIdRef.current = null;
@@ -314,6 +359,36 @@ export default function DashboardPage() {
     Tone.Transport.set({ position: 0 });
     playbackStepRef.current = 0;
     totalStepsRef.current = 1;
+    playbackDurationSecondsRef.current = 0;
+  };
+
+  const startProgressAnimation = () => {
+    if (playbackRafRef.current !== null) {
+      cancelAnimationFrame(playbackRafRef.current);
+      playbackRafRef.current = null;
+    }
+
+    const tick = () => {
+      if (!isPlayingRef.current || !activeSongIdRef.current) {
+        playbackRafRef.current = null;
+        return;
+      }
+
+      const totalDuration = playbackDurationSecondsRef.current;
+      if (totalDuration > 0) {
+        const nextProgress = Math.max(
+          0,
+          Math.min(1, Tone.Transport.seconds / totalDuration)
+        );
+        setPlaybackProgress((prev) =>
+          Math.abs(prev - nextProgress) > 0.0005 ? nextProgress : prev
+        );
+      }
+
+      playbackRafRef.current = requestAnimationFrame(tick);
+    };
+
+    playbackRafRef.current = requestAnimationFrame(tick);
   };
 
   const applySongFxSettings = (project: Project) => {
@@ -375,6 +450,9 @@ export default function DashboardPage() {
         router.replace("/login");
         return;
       }
+      setViewerId(data.session.user.id);
+      setViewerEmail(data.session.user.email ?? null);
+      setViewerName(nameFromEmail(data.session.user.email));
       setAuthReady(true);
     };
 
@@ -382,9 +460,15 @@ export default function DashboardPage() {
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
+        setViewerId(session.user.id);
+        setViewerEmail(session.user.email ?? null);
+        setViewerName(nameFromEmail(session.user.email));
         setAuthReady(true);
         return;
       }
+      setViewerId(null);
+      setViewerEmail(null);
+      setViewerName("there");
       setAuthReady(false);
       router.replace("/login");
     });
@@ -415,6 +499,40 @@ export default function DashboardPage() {
 
     loadSongs();
   }, [authReady]);
+
+  useEffect(() => {
+    if (!viewerEmail) {
+      setPinnedSongIds([]);
+      return;
+    }
+    const key = `melodica:pinnedSongs:${viewerEmail}`;
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) {
+        setPinnedSongIds([]);
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        setPinnedSongIds([]);
+        return;
+      }
+      const valid = parsed.filter((id): id is string => typeof id === "string");
+      setPinnedSongIds(valid.slice(0, 3));
+    } catch {
+      setPinnedSongIds([]);
+    }
+  }, [viewerEmail]);
+
+  useEffect(() => {
+    if (!viewerEmail) return;
+    const key = `melodica:pinnedSongs:${viewerEmail}`;
+    try {
+      window.localStorage.setItem(key, JSON.stringify(pinnedSongIds.slice(0, 3)));
+    } catch {
+      // ignore storage write failures
+    }
+  }, [pinnedSongIds, viewerEmail]);
 
   useEffect(() => {
     const synthBank = synthBankRef.current;
@@ -547,6 +665,14 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  useEffect(() => {
+    activeSongIdRef.current = activeSongId;
+  }, [activeSongId]);
+
+  useEffect(() => {
     const onDocumentClick = (event: MouseEvent) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
@@ -565,10 +691,15 @@ export default function DashboardPage() {
       if (isPlaying) {
         Tone.Transport.pause();
         stopAllVocalAudio();
+        if (playbackRafRef.current !== null) {
+          cancelAnimationFrame(playbackRafRef.current);
+          playbackRafRef.current = null;
+        }
         setIsPlaying(false);
       } else {
         Tone.Transport.start();
         setIsPlaying(true);
+        startProgressAnimation();
       }
       return;
     }
@@ -582,6 +713,7 @@ export default function DashboardPage() {
     totalStepsRef.current = totalSteps16;
     playbackStepRef.current = 0;
     const safeBpm = Math.max(20, Math.min(400, Number(project.bpm) || 120));
+    playbackDurationSecondsRef.current = totalSteps16 * ((60 / safeBpm) / 4);
     const now = Tone.now();
     Tone.Transport.bpm.cancelScheduledValues(now);
     Tone.Transport.bpm.setValueAtTime(safeBpm, now);
@@ -666,8 +798,8 @@ export default function DashboardPage() {
       const nextStep = isLastStep ? totalSteps16 - 1 : step16 + 1;
       playbackStepRef.current = nextStep;
       Tone.Draw.schedule(() => {
-        setPlaybackProgress(nextStep / totalSteps16);
         if (isLastStep) {
+          setPlaybackProgress(1);
           clearPlayback();
           setIsPlaying(false);
           setActiveSongId(null);
@@ -679,6 +811,7 @@ export default function DashboardPage() {
     Tone.Transport.start();
     setActiveSongId(song.id);
     setIsPlaying(true);
+    startProgressAnimation();
   }
 
   function handleSeek(songId: string, value: number) {
@@ -686,6 +819,10 @@ export default function DashboardPage() {
     const clamped = Math.max(0, Math.min(100, value));
     const targetStep = Math.floor((clamped / 100) * totalStepsRef.current);
     playbackStepRef.current = Math.min(totalStepsRef.current - 1, targetStep);
+    const duration = playbackDurationSecondsRef.current;
+    if (duration > 0) {
+      Tone.Transport.seconds = (clamped / 100) * duration;
+    }
     setPlaybackProgress(clamped / 100);
   }
 
@@ -748,6 +885,128 @@ export default function DashboardPage() {
         song.id === songId ? { ...song, title: nextName, updated_at: now } : song
       )
     );
+  }
+
+  async function updateSongProjectData(song: SongRow, nextProject: Project) {
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from("songs")
+      .update({
+        title: nextProject.name || song.title || "Untitled",
+        bpm: nextProject.bpm || song.bpm || 120,
+        project_data: nextProject,
+        updated_at: now,
+      })
+      .eq("id", song.id);
+
+    if (error) return { ok: false as const, now };
+
+    setSongs((prev) =>
+      prev.map((s) =>
+        s.id === song.id
+          ? {
+              ...s,
+              title: nextProject.name || s.title,
+              bpm: nextProject.bpm,
+              project_data: nextProject,
+              updated_at: now,
+            }
+          : s
+      )
+    );
+    return { ok: true as const, now };
+  }
+
+  function handleRequestCoverUpload(song: SongRow) {
+    coverUploadSongRef.current = song;
+    setOpenMenuSongId(null);
+    coverUploadInputRef.current?.click();
+  }
+
+  async function handleCoverInputChange(event: ChangeEvent<HTMLInputElement>) {
+    const song = coverUploadSongRef.current;
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    coverUploadSongRef.current = null;
+    if (!song || !file) return;
+    if (!file.type.startsWith("image/")) {
+      window.alert("Please choose an image file.");
+      return;
+    }
+    if (!viewerId) {
+      window.alert("You need to be logged in to upload covers.");
+      return;
+    }
+
+    setUploadingCoverId(song.id);
+    try {
+      const applyCoverUrl = async (coverUrl: string) => {
+        const project = normalizeSongProject(song);
+        const nextProject: Project = {
+          ...project,
+          settings: {
+            ...project.settings,
+            albumCoverUrl: coverUrl,
+          },
+          updatedAt: Date.now(),
+        };
+        const result = await updateSongProjectData(song, nextProject);
+        if (!result.ok) {
+          window.alert("Could not save cover to project. Please try again.");
+        }
+      };
+
+      const extension = (file.name.split(".").pop() || "jpg").toLowerCase();
+      const safeExt = extension.replace(/[^a-z0-9]/g, "") || "jpg";
+      const path = `${viewerId}/${song.id}/cover-${Date.now()}.${safeExt}`;
+      const { error: uploadError } = await supabase.storage
+        .from(COVER_BUCKET)
+        .upload(path, file, { upsert: true, cacheControl: "3600" });
+
+      if (!uploadError) {
+        const { data } = supabase.storage.from(COVER_BUCKET).getPublicUrl(path);
+        await applyCoverUrl(data.publicUrl);
+        return;
+      }
+
+      // Storage fallback: keep covers usable even if bucket/policies are not set up yet.
+      if (file.size > 1_500_000) {
+        window.alert("Cover upload failed (storage config) and file is too large for fallback. Use an image under 1.5MB.");
+        return;
+      }
+      const dataUrl = await fileToDataUrl(file);
+      await applyCoverUrl(dataUrl);
+    } finally {
+      setUploadingCoverId(null);
+    }
+  }
+
+  async function handleRemoveCover(song: SongRow) {
+    setOpenMenuSongId(null);
+    const project = normalizeSongProject(song);
+    if (!project.settings.albumCoverUrl) return;
+    const nextProject: Project = {
+      ...project,
+      settings: {
+        ...project.settings,
+      },
+      updatedAt: Date.now(),
+    };
+    delete nextProject.settings.albumCoverUrl;
+    const result = await updateSongProjectData(song, nextProject);
+    if (!result.ok) {
+      window.alert("Could not remove cover. Please try again.");
+    }
+  }
+
+  function handleTogglePin(songId: string) {
+    setPinnedSongIds((current) => {
+      if (current.includes(songId)) {
+        return current.filter((id) => id !== songId);
+      }
+      return [...current, songId].slice(0, 3);
+    });
+    setOpenMenuSongId(null);
   }
 
   async function handleExport(song: SongRow) {
@@ -922,13 +1181,25 @@ export default function DashboardPage() {
       </main>
     );
   }
+
+  const explicitPinned = pinnedSongIds
+    .map((id) => songs.find((song) => song.id === id))
+    .filter((song): song is SongRow => Boolean(song));
+  const pinnedProjects = explicitPinned.slice(0, 3);
+  const pinnedGridClass =
+    pinnedProjects.length === 2
+      ? "mt-3 grid grid-cols-1 gap-3 md:grid-cols-2"
+      : pinnedProjects.length === 3
+        ? "mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3"
+        : "mt-3 grid grid-cols-1 gap-3";
   
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#ffffff_0%,#e8edf4_50%,#dfe6ef_100%)] p-8 dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
       <div className="mx-auto max-w-5xl rounded-3xl border border-white/60 bg-white/50 p-6 shadow-2xl shadow-slate-400/20 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="text-sm opacity-75">{`Welcome ${viewerName}.`}</p>
+          <h1 className="text-4xl font-bold tracking-tight md:text-5xl">Dashboard</h1>
           <p className="mt-1 text-sm opacity-80">
             Your projects will show up here.
           </p>
@@ -937,20 +1208,130 @@ export default function DashboardPage() {
         <button
           type="button"
           onClick={() => void handleLogout()}
-          className="rounded-md border border-slate-300/80 bg-slate-800 px-4 py-2 text-sm text-white transition-all duration-200 hover:border-white/90 hover:bg-slate-700 hover:shadow-[0_0_18px_rgba(255,255,255,0.5)] dark:border-slate-500/50 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.5)]"
+          className="rounded-md bg-slate-800 px-4 py-2 text-sm text-white transition-all duration-200 hover:bg-slate-700 hover:shadow-[0_0_18px_rgba(255,255,255,0.5)] dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.5)]"
         >
           Log Out
         </button>
       </header>
 
-      <div className="mt-6 w-full">
+      <div className="mt-10 w-full">
         <Link
           href="/editor"
-          className="flex w-full items-center justify-center rounded-xl border border-emerald-400/80 bg-emerald-500 px-6 py-4 text-base font-semibold text-white shadow-sm transition-all duration-200 hover:border-emerald-300 hover:bg-emerald-600 hover:shadow-[0_0_18px_rgba(74,222,128,0.55)] dark:border-emerald-300/50 dark:bg-emerald-400 dark:text-slate-900 dark:hover:bg-emerald-300 dark:hover:shadow-[0_0_18px_rgba(74,222,128,0.4)]"
+          className="flex w-full items-center justify-center rounded-xl bg-emerald-500 px-6 py-5 text-base font-semibold text-white shadow-sm transition-all duration-200 hover:bg-emerald-600 hover:shadow-[0_0_18px_rgba(74,222,128,0.55)] dark:bg-emerald-400 dark:text-slate-900 dark:hover:bg-emerald-300 dark:hover:shadow-[0_0_18px_rgba(74,222,128,0.4)]"
         >
           + New Project
         </Link>
       </div>
+      <input
+        ref={coverUploadInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => void handleCoverInputChange(e)}
+      />
+
+      {pinnedProjects.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.18em] opacity-65">
+            Pinned Projects
+          </h2>
+          <div className={pinnedGridClass}>
+            {pinnedProjects.map((song) => {
+              const isActive = activeSongId === song.id;
+              const isSongPlaying = isActive && isPlaying;
+              const totalSeconds = getSongDurationSeconds(song);
+              const currentSeconds = isSongPlaying ? playbackProgress * totalSeconds : 0;
+              const sliderValue = isActive ? playbackProgress * 100 : 0;
+              const isPinned = pinnedSongIds.includes(song.id);
+              const coverUrl = getSongCoverUrl(song);
+              return (
+                <div
+                  key={`pinned-${song.id}`}
+                  className="relative rounded-2xl bg-white/65 p-4 shadow-sm ring-1 ring-white/40 backdrop-blur dark:bg-zinc-800/45 dark:ring-white/10"
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePin(song.id)}
+                    aria-label={isPinned ? "Unpin project" : "Pin project"}
+                    className="absolute right-3 top-3 flex items-center justify-center px-1 py-0.5 text-slate-900 transition-all duration-200 hover:scale-110 hover:[text-shadow:0_0_10px_rgba(255,255,255,0.75)] dark:text-slate-100 dark:hover:[text-shadow:0_0_10px_rgba(255,255,255,0.45)]"
+                  >
+                    <span className="text-sm font-semibold leading-none" aria-hidden="true">
+                      ×
+                    </span>
+                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleRequestCoverUpload(song)}
+                      disabled={uploadingCoverId === song.id}
+                      aria-label={coverUrl ? "Replace album cover" : "Upload album cover"}
+                      className="shrink-0 rounded-xl transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {coverUrl ? (
+                        <img
+                          src={coverUrl}
+                          alt={`${song.title ?? "Untitled"} cover`}
+                          className="h-12 w-12 rounded-xl object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/60 text-sm font-semibold text-slate-600 dark:bg-zinc-700/60 dark:text-slate-300">
+                          Art
+                        </div>
+                      )}
+                    </button>
+                    <p className="truncate text-lg font-semibold">{song.title ?? "Untitled"}</p>
+                  </div>
+                  <div className="mt-4 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => void handlePlayPause(song)}
+                      aria-label={isSongPlaying ? "Pause" : "Play"}
+                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-white/85 text-sm text-slate-900 shadow-sm transition-all duration-200 hover:bg-white hover:shadow-[0_0_14px_rgba(255,255,255,0.65)] dark:bg-zinc-700/70 dark:text-slate-100 dark:hover:bg-zinc-700"
+                    >
+                      {isSongPlaying ? (
+                        <span className="flex items-center gap-1">
+                          <span className="h-4 w-1 rounded-sm bg-current" />
+                          <span className="h-4 w-1 rounded-sm bg-current" />
+                        </span>
+                      ) : (
+                        "▶"
+                      )}
+                    </button>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={sliderValue}
+                      onInput={(e) => handleSeek(song.id, Number(e.currentTarget.value))}
+                      onChange={(e) => handleSeek(song.id, Number(e.currentTarget.value))}
+                      className="dashboard-slider h-2 w-full appearance-none rounded-full transition-all duration-200"
+                      style={{
+                        background: `linear-gradient(90deg, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.96) ${sliderValue.toFixed(3)}%, rgba(148,163,184,0.35) ${sliderValue.toFixed(3)}%, rgba(148,163,184,0.35) 100%)`,
+                        boxShadow:
+                          isSongPlaying
+                            ? "0 0 16px rgba(255,255,255,0.8), inset 0 0 8px rgba(255,255,255,0.55)"
+                            : "inset 0 0 6px rgba(255,255,255,0.25)",
+                      }}
+                    />
+                    <span className="text-sm opacity-80">
+                      {isSongPlaying
+                        ? formatDuration(currentSeconds)
+                        : formatDuration(totalSeconds)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/editor?id=${song.id}`)}
+                      className="shrink-0 rounded-md bg-slate-200/85 px-3 py-1 text-sm font-medium text-slate-800 transition-all duration-200 hover:bg-slate-200 dark:bg-zinc-700/85 dark:text-slate-100 dark:hover:bg-zinc-700"
+                    >
+                      Open
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <section className="mt-8">
         <h2 className="text-lg font-semibold">Projects</h2>
@@ -968,7 +1349,8 @@ export default function DashboardPage() {
                 const currentSeconds = isActive && isPlaying
                   ? playbackProgress * songDurationSeconds
                   : 0;
-                const sliderValue = isActive ? Math.round(playbackProgress * 100) : 0;
+                const sliderValue = isActive ? playbackProgress * 100 : 0;
+                const coverUrl = getSongCoverUrl(song);
                 return (
               <div
                 key={song.id}
@@ -978,12 +1360,33 @@ export default function DashboardPage() {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium">{song.title}</p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleRequestCoverUpload(song)}
+                        disabled={uploadingCoverId === song.id}
+                        aria-label={coverUrl ? "Replace album cover" : "Upload album cover"}
+                        className="shrink-0 rounded-lg transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {coverUrl ? (
+                          <img
+                            src={coverUrl}
+                            alt={`${song.title ?? "Untitled"} cover`}
+                            className="h-10 w-10 rounded-lg object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/60 text-xs font-semibold text-slate-600 dark:bg-zinc-700/60 dark:text-slate-300">
+                            Art
+                          </div>
+                        )}
+                      </button>
+                      <p className="font-medium">{song.title}</p>
+                    </div>
                     <div className="mt-2 flex items-center gap-2">
                       <button
                         onClick={() => void handlePlayPause(song)}
                         aria-label={activeSongId === song.id && isPlaying ? "Pause" : "Play"}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-300/80 bg-white/70 text-sm text-slate-800 transition-all duration-200 hover:border-white/95 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:border-white/15 dark:bg-zinc-700/50 dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-white/70 text-sm text-slate-800 transition-all duration-200 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:bg-zinc-700/50 dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
                       >
                         {activeSongId === song.id && isPlaying ? (
                           <span className="flex items-center gap-1">
@@ -999,10 +1402,11 @@ export default function DashboardPage() {
                         min={0}
                         max={100}
                         value={sliderValue}
+                        onInput={(e) => handleSeek(song.id, Number(e.currentTarget.value))}
                         onChange={(e) => handleSeek(song.id, Number(e.currentTarget.value))}
                         className="dashboard-slider h-2 w-full appearance-none rounded-full border border-white/70 transition-all duration-200"
                         style={{
-                          background: `linear-gradient(90deg, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.96) ${sliderValue}%, rgba(148,163,184,0.35) ${sliderValue}%, rgba(148,163,184,0.35) 100%)`,
+                          background: `linear-gradient(90deg, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.96) ${sliderValue.toFixed(3)}%, rgba(148,163,184,0.35) ${sliderValue.toFixed(3)}%, rgba(148,163,184,0.35) 100%)`,
                           boxShadow:
                             isActive && isPlaying
                               ? "0 0 16px rgba(255,255,255,0.8), inset 0 0 8px rgba(255,255,255,0.55)"
@@ -1017,7 +1421,7 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-2 self-center">
                     <button
                       onClick={() => router.push(`/editor?id=${song.id}`)}
-                      className="rounded-md border border-slate-300/80 bg-white/70 px-3 py-1 text-sm text-slate-800 transition-all duration-200 hover:border-white/95 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:border-white/15 dark:bg-zinc-700/50 dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
+                      className="rounded-md bg-white/70 px-3 py-1 text-sm text-slate-800 transition-all duration-200 hover:bg-white hover:shadow-[0_0_18px_rgba(255,255,255,0.65)] dark:bg-zinc-700/50 dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
                     >
                       Open
                     </button>
@@ -1036,8 +1440,32 @@ export default function DashboardPage() {
                         <div className="absolute bottom-full right-0 z-40 mb-2 w-36 rounded-lg border border-white/60 bg-white/90 p-1.5 shadow-xl backdrop-blur-md dark:border-white/15 dark:bg-zinc-900/90">
                           <button
                             type="button"
+                            onClick={() => handleRequestCoverUpload(song)}
+                            disabled={uploadingCoverId === song.id}
+                            className="w-full rounded-md px-3 py-1.5 text-left text-sm text-slate-800 transition-all duration-150 hover:bg-white hover:shadow-[0_0_14px_rgba(255,255,255,0.65)] disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_14px_rgba(255,255,255,0.35)]"
+                          >
+                            {uploadingCoverId === song.id ? "Uploading..." : "Upload Cover"}
+                          </button>
+                          {coverUrl && (
+                            <button
+                              type="button"
+                              onClick={() => void handleRemoveCover(song)}
+                              className="mt-1 w-full rounded-md px-3 py-1.5 text-left text-sm text-slate-800 transition-all duration-150 hover:bg-white hover:shadow-[0_0_14px_rgba(255,255,255,0.65)] dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_14px_rgba(255,255,255,0.35)]"
+                            >
+                              Remove Cover
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleTogglePin(song.id)}
+                            className="mt-1 w-full rounded-md px-3 py-1.5 text-left text-sm text-slate-800 transition-all duration-150 hover:bg-white hover:shadow-[0_0_14px_rgba(255,255,255,0.65)] dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_14px_rgba(255,255,255,0.35)]"
+                          >
+                            {pinnedSongIds.includes(song.id) ? "Unpin" : "Pin"}
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => void handleRename(song.id, song.title)}
-                            className="w-full rounded-md px-3 py-1.5 text-left text-sm text-slate-800 transition-all duration-150 hover:bg-white hover:shadow-[0_0_14px_rgba(255,255,255,0.65)] dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_14px_rgba(255,255,255,0.35)]"
+                            className="mt-1 w-full rounded-md px-3 py-1.5 text-left text-sm text-slate-800 transition-all duration-150 hover:bg-white hover:shadow-[0_0_14px_rgba(255,255,255,0.65)] dark:text-slate-100 dark:hover:bg-zinc-700/80 dark:hover:shadow-[0_0_14px_rgba(255,255,255,0.35)]"
                           >
                             Rename
                           </button>

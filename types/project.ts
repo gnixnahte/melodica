@@ -61,6 +61,7 @@ export type ProjectSettings = {
   reverbDecay: number;
   sfxPreset: SfxPreset;
   distortionAmount: number;
+  albumCoverUrl?: string;
 };
 
 export type Project = {
