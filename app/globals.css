@@ -120,41 +120,32 @@ button:not(:disabled),
   box-shadow: 0 0 12px rgba(255, 255, 255, 0.8);
 }
 
-@keyframes cursor-orbit-slow {
-  from {
-    transform: translate(-50%, -50%) rotate(0deg);
-  }
-  to {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
+.landing-page-bg {
+  background:
+    radial-gradient(1000px 460px at 18% 12%, rgba(255, 255, 255, 0.06), transparent 62%),
+    linear-gradient(180deg, #2a2d35 0%, #1f222a 48%, #191c23 100%);
 }
 
-@keyframes cursor-orbit-mid {
-  from {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-  to {
-    transform: translate(-50%, -50%) rotate(0deg);
-  }
+.landing-hero-art {
+  mask-image: linear-gradient(to left, #000 0%, #000 42%, rgba(0, 0, 0, 0) 82%);
+  -webkit-mask-image: linear-gradient(to left, #000 0%, #000 42%, rgba(0, 0, 0, 0) 82%);
 }
 
-@keyframes cursor-orbit-fast {
-  from {
-    transform: translate(-50%, -50%) rotate(0deg);
-  }
-  to {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
+.landing-hero-svg {
+  filter: saturate(1) contrast(0.98) brightness(0.96);
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
-.cursor-orbit-slow {
-  animation: cursor-orbit-slow 8s linear infinite;
+.landing-hero-fade {
+  background:
+    linear-gradient(to left, rgba(31, 34, 42, 0) 26%, rgba(31, 34, 42, 0.95) 78%),
+    linear-gradient(to bottom, rgba(42, 45, 53, 0.85) 0%, rgba(42, 45, 53, 0) 18%),
+    linear-gradient(to top, rgba(25, 28, 35, 0.82) 0%, rgba(25, 28, 35, 0) 20%);
 }
 
-.cursor-orbit-mid {
-  animation: cursor-orbit-mid 5.8s linear infinite;
-}
-
-.cursor-orbit-fast {
-  animation: cursor-orbit-fast 4.4s linear infinite;
+.landing-glass-title {
+  color: rgba(244, 247, 252, 0.98);
+  text-shadow: none;
 }
