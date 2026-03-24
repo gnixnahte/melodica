@@ -10,6 +10,7 @@ const DEFAULT_AUTOSAVE_DELAY_MS = 1200;
 
 type UseEditorSaveParams = {
   authReady: boolean;
+  viewerId: string | null;
   songIdFromUrl: string | null;
   project: Project;
   songId: string | null;
@@ -19,6 +20,7 @@ type UseEditorSaveParams = {
 
 export function useEditorSave({
   authReady,
+  viewerId,
   songIdFromUrl,
   project,
   songId,
@@ -56,6 +58,7 @@ export function useEditorSave({
 
   const persistLatestProject = useCallback(async () => {
     if (!authReady) return false;
+    if (!viewerId) return false;
     if (songIdFromUrl && !songIdRef.current) return false;
     if (saveInFlightRef.current) {
       saveQueuedRef.current = true;
@@ -88,7 +91,8 @@ export function useEditorSave({
               project_data: projectToSave,
               updated_at: now,
             })
-            .eq("id", currentSongId);
+            .eq("id", currentSongId)
+            .eq("user_id", viewerId);
 
           if (error) {
             saveFailed = true;
@@ -105,6 +109,7 @@ export function useEditorSave({
                 title: projectToSave.name || "Untitled",
                 bpm: projectToSave.bpm || 120,
                 project_data: projectToSave,
+                user_id: viewerId,
                 created_at: now,
                 updated_at: now,
               },
@@ -132,7 +137,7 @@ export function useEditorSave({
 
     setSaveStatus(saveFailed ? "error" : "saved");
     return savedAtLeastOnce;
-  }, [authReady, songIdFromUrl, setSongId]);
+  }, [authReady, songIdFromUrl, setSongId, viewerId]);
 
   useEffect(() => {
     if (!authReady) return;

@@ -14,6 +14,7 @@ type SongRow = {
   id: string;
   title: string | null;
   bpm: number | null;
+  user_id: string | null;
   updated_at: string | null;
   created_at: string | null;
   project_data: unknown;
@@ -70,6 +71,7 @@ const SFX_PRESET_SETTINGS: Record<
   Crunch: { filterType: "lowpass", filterFrequency: 9000, filterQ: 0.6 },
 };
 const COVER_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_COVER_BUCKET || "album-covers";
+const OWNER_EMAIL = "ethanxing2007@gmail.com";
 
 function normalizeSongProject(song: SongRow): Project {
   const base = createDefaultProject(song.title ?? "Untitled");
@@ -295,6 +297,7 @@ export default function DashboardPage() {
   const [viewerEmail, setViewerEmail] = useState<string | null>(null);
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [songs, setSongs] = useState<SongRow[]>([]);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [openMenuSongId, setOpenMenuSongId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState<string | null>(null);
@@ -307,6 +310,9 @@ export default function DashboardPage() {
   const synthBankRef = useRef<Map<MelodyInstrument, MelodyPolySynth>>(new Map());
   const masterGainRef = useRef<Tone.Gain | null>(null);
   const reverbRef = useRef<Tone.Reverb | null>(null);
+  const drumReverbRef = useRef<Tone.Reverb | null>(null);
+  const drumDryGainRef = useRef<Tone.Gain | null>(null);
+  const drumWetGainRef = useRef<Tone.Gain | null>(null);
   const sfxFilterRef = useRef<Tone.Filter | null>(null);
   const sfxDistortionRef = useRef<Tone.Distortion | null>(null);
   const kickRef = useRef<Tone.MembraneSynth[]>([]);
@@ -394,14 +400,20 @@ export default function DashboardPage() {
   const applySongFxSettings = (project: Project) => {
     const master = masterGainRef.current;
     const reverb = reverbRef.current;
+    const drumDry = drumDryGainRef.current;
+    const drumWet = drumWetGainRef.current;
+    const drumReverb = drumReverbRef.current;
     const filter = sfxFilterRef.current;
     const distortion = sfxDistortionRef.current;
-    if (!master || !reverb || !filter || !distortion) return;
+    if (!master || !reverb || !drumDry || !drumWet || !drumReverb || !filter || !distortion) return;
 
     const settings = project.settings;
     const nextMaster = Math.max(0, Math.min(1, settings.masterVolume ?? 0.9));
     const nextWet = Math.max(0, Math.min(1, settings.reverbWet ?? 0.2));
     const nextDecay = Math.max(0.2, Math.min(10, settings.reverbDecay ?? 2.5));
+    const nextDrumVolume = Math.max(0, Math.min(1, settings.drumVolume ?? 0.9));
+    const nextDrumWet = Math.max(0, Math.min(1, settings.drumReverbWet ?? 0.2));
+    const nextDrumDecay = Math.max(0.2, Math.min(10, settings.drumReverbDecay ?? 2.2));
     const nextDistortion = Math.max(0, Math.min(1, settings.distortionAmount ?? 0));
     const preset = SFX_PRESET_SETTINGS[settings.sfxPreset ?? "Clean"];
 
@@ -410,6 +422,10 @@ export default function DashboardPage() {
     reverb.wet.value = nextWet;
     reverb.decay = nextDecay;
     void reverb.generate();
+    drumDry.gain.value = nextDrumVolume * (1 - nextDrumWet);
+    drumWet.gain.value = nextDrumVolume * nextDrumWet;
+    drumReverb.decay = nextDrumDecay;
+    void drumReverb.generate();
     filter.type = preset.filterType;
     filter.frequency.value = preset.filterFrequency;
     filter.Q.value = preset.filterQ;
@@ -420,6 +436,15 @@ export default function DashboardPage() {
     const reverb = reverbRef.current;
     if (reverb) node.connect(reverb);
     else node.toDestination();
+    return node;
+  };
+
+  const connectDrumNode = <T extends Tone.ToneAudioNode>(node: T): T => {
+    const drumDry = drumDryGainRef.current;
+    const drumReverb = drumReverbRef.current;
+    if (drumDry) node.connect(drumDry);
+    if (drumReverb) node.connect(drumReverb);
+    if (!drumDry && !drumReverb) node.toDestination();
     return node;
   };
 
@@ -450,6 +475,12 @@ export default function DashboardPage() {
         router.replace("/login");
         return;
       }
+      const sessionEmail = data.session.user.email?.toLowerCase() ?? "";
+      if (sessionEmail !== OWNER_EMAIL) {
+        await supabase.auth.signOut({ scope: "local" });
+        router.replace("/login?unauthorized=1");
+        return;
+      }
       setViewerId(data.session.user.id);
       setViewerEmail(data.session.user.email ?? null);
       setViewerName(nameFromEmail(data.session.user.email));
@@ -460,6 +491,16 @@ export default function DashboardPage() {
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
+        const sessionEmail = session.user.email?.toLowerCase() ?? "";
+        if (sessionEmail !== OWNER_EMAIL) {
+          void supabase.auth.signOut({ scope: "local" });
+          setViewerId(null);
+          setViewerEmail(null);
+          setViewerName("there");
+          setAuthReady(false);
+          router.replace("/login?unauthorized=1");
+          return;
+        }
         setViewerId(session.user.id);
         setViewerEmail(session.user.email ?? null);
         setViewerName(nameFromEmail(session.user.email));
@@ -481,11 +522,13 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!authReady) return;
+    if (!viewerId) return;
 
     async function loadSongs() {
       const { data, error } = await supabase
         .from("songs")
         .select("*")
+        .eq("user_id", viewerId)
         .order("updated_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false, nullsFirst: false });
 
@@ -498,7 +541,7 @@ export default function DashboardPage() {
     }
 
     loadSongs();
-  }, [authReady]);
+  }, [authReady, viewerId]);
 
   useEffect(() => {
     if (!viewerEmail) {
@@ -538,6 +581,9 @@ export default function DashboardPage() {
     const synthBank = synthBankRef.current;
     const master = new Tone.Gain(0.9).toDestination();
     const reverb = new Tone.Reverb({ decay: 2.5, wet: 0.2 });
+    const drumReverb = new Tone.Reverb({ decay: 2.2, wet: 1 });
+    const drumDry = new Tone.Gain(1);
+    const drumWet = new Tone.Gain(0);
     const sfxFilter = new Tone.Filter({
       type: "lowpass",
       frequency: 20000,
@@ -548,25 +594,31 @@ export default function DashboardPage() {
       wet: 1,
     });
     reverb.connect(sfxFilter);
+    drumDry.toDestination();
+    drumReverb.connect(drumWet);
+    drumWet.toDestination();
     sfxFilter.connect(sfxDistortion);
     sfxDistortion.connect(master);
     masterGainRef.current = master;
     reverbRef.current = reverb;
+    drumReverbRef.current = drumReverb;
+    drumDryGainRef.current = drumDry;
+    drumWetGainRef.current = drumWet;
     sfxFilterRef.current = sfxFilter;
     sfxDistortionRef.current = sfxDistortion;
 
     kickRef.current = [
-      connectInstrumentNode(new Tone.MembraneSynth({
+      connectDrumNode(new Tone.MembraneSynth({
         pitchDecay: 0.05,
         octaves: 7,
         envelope: { attack: 0.001, decay: 0.16, sustain: 0 },
       })),
-      connectInstrumentNode(new Tone.MembraneSynth({
+      connectDrumNode(new Tone.MembraneSynth({
         pitchDecay: 0.06,
         octaves: 10,
         envelope: { attack: 0.001, decay: 0.30, sustain: 0 },
       })),
-      connectInstrumentNode(new Tone.MembraneSynth({
+      connectDrumNode(new Tone.MembraneSynth({
         pitchDecay: 0.03,
         octaves: 6,
         envelope: { attack: 0.001, decay: 0.12, sustain: 0 },
@@ -574,15 +626,15 @@ export default function DashboardPage() {
     ];
 
     snareRef.current = [
-      connectInstrumentNode(new Tone.NoiseSynth({
+      connectDrumNode(new Tone.NoiseSynth({
         noise: { type: "white" },
         envelope: { attack: 0.001, decay: 0.12, sustain: 0 },
       })),
-      connectInstrumentNode(new Tone.NoiseSynth({
+      connectDrumNode(new Tone.NoiseSynth({
         noise: { type: "pink" },
         envelope: { attack: 0.001, decay: 0.18, sustain: 0 },
       })),
-      connectInstrumentNode(new Tone.NoiseSynth({
+      connectDrumNode(new Tone.NoiseSynth({
         noise: { type: "brown" },
         envelope: { attack: 0.001, decay: 0.08, sustain: 0 },
       })),
@@ -590,7 +642,7 @@ export default function DashboardPage() {
 
     hatRef.current = [
       (() => {
-        const h = connectInstrumentNode(new Tone.MetalSynth({
+        const h = connectDrumNode(new Tone.MetalSynth({
           envelope: { attack: 0.001, decay: 0.05, release: 0.01 },
           harmonicity: 5.1,
           modulationIndex: 28,
@@ -601,7 +653,7 @@ export default function DashboardPage() {
         return h;
       })(),
       (() => {
-        const h = connectInstrumentNode(new Tone.MetalSynth({
+        const h = connectDrumNode(new Tone.MetalSynth({
           envelope: { attack: 0.001, decay: 0.11, release: 0.02 },
           harmonicity: 5.1,
           modulationIndex: 32,
@@ -612,7 +664,7 @@ export default function DashboardPage() {
         return h;
       })(),
       (() => {
-        const h = connectInstrumentNode(new Tone.MetalSynth({
+        const h = connectDrumNode(new Tone.MetalSynth({
           envelope: { attack: 0.001, decay: 0.07, release: 0.01 },
           harmonicity: 5.1,
           modulationIndex: 40,
@@ -625,17 +677,17 @@ export default function DashboardPage() {
     ];
 
     tomRef.current = [
-      connectInstrumentNode(new Tone.MembraneSynth({
+      connectDrumNode(new Tone.MembraneSynth({
         pitchDecay: 0.03,
         octaves: 4,
         envelope: { attack: 0.001, decay: 0.22, sustain: 0 },
       })),
-      connectInstrumentNode(new Tone.MembraneSynth({
+      connectDrumNode(new Tone.MembraneSynth({
         pitchDecay: 0.025,
         octaves: 3,
         envelope: { attack: 0.001, decay: 0.20, sustain: 0 },
       })),
-      connectInstrumentNode(new Tone.MembraneSynth({
+      connectDrumNode(new Tone.MembraneSynth({
         pitchDecay: 0.02,
         octaves: 2,
         envelope: { attack: 0.001, decay: 0.18, sustain: 0 },
@@ -651,10 +703,16 @@ export default function DashboardPage() {
       );
       sfxDistortion.dispose();
       sfxFilter.dispose();
+      drumWet.dispose();
+      drumDry.dispose();
+      drumReverb.dispose();
       reverb.dispose();
       master.dispose();
       sfxDistortionRef.current = null;
       sfxFilterRef.current = null;
+      drumWetGainRef.current = null;
+      drumDryGainRef.current = null;
+      drumReverbRef.current = null;
       reverbRef.current = null;
       masterGainRef.current = null;
       kickRef.current = [];
@@ -834,7 +892,11 @@ export default function DashboardPage() {
 
     setDeletingId(songId);
     setOpenMenuSongId(null);
-    const { error } = await supabase.from("songs").delete().eq("id", songId);
+    if (!viewerId) {
+      setDeletingId(null);
+      return;
+    }
+    const { error } = await supabase.from("songs").delete().eq("id", songId).eq("user_id", viewerId);
     setDeletingId(null);
 
     if (error) {
@@ -865,6 +927,7 @@ export default function DashboardPage() {
     }
     if (nextName === currentName) return;
 
+    if (!viewerId) return;
     const now = new Date().toISOString();
     const { error } = await supabase
       .from("songs")
@@ -872,7 +935,8 @@ export default function DashboardPage() {
         title: nextName,
         updated_at: now,
       })
-      .eq("id", songId);
+      .eq("id", songId)
+      .eq("user_id", viewerId);
 
     if (error) {
       console.error("Error renaming song:", error);
@@ -888,6 +952,7 @@ export default function DashboardPage() {
   }
 
   async function updateSongProjectData(song: SongRow, nextProject: Project) {
+    if (!viewerId) return { ok: false as const, now: new Date().toISOString() };
     const now = new Date().toISOString();
     const { error } = await supabase
       .from("songs")
@@ -897,7 +962,8 @@ export default function DashboardPage() {
         project_data: nextProject,
         updated_at: now,
       })
-      .eq("id", song.id);
+      .eq("id", song.id)
+      .eq("user_id", viewerId);
 
     if (error) return { ok: false as const, now };
 
@@ -1164,12 +1230,20 @@ export default function DashboardPage() {
   }
 
   async function handleLogout() {
-    const { error } = await supabase.auth.signOut({ scope: "global" });
-    if (error) {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    try {
+      const signOutPromise = supabase.auth.signOut({ scope: "local" });
+      await Promise.race([
+        signOutPromise,
+        new Promise((resolve) => window.setTimeout(resolve, 2500)),
+      ]);
+    } catch (error) {
       console.error("Error signing out:", error);
+    } finally {
+      router.replace("/login");
+      window.location.assign("/login");
     }
-    router.replace("/login");
-    router.refresh();
   }
 
   if (!authReady) {
@@ -1208,9 +1282,10 @@ export default function DashboardPage() {
         <button
           type="button"
           onClick={() => void handleLogout()}
+          disabled={isLoggingOut}
           className="rounded-md bg-slate-800 px-4 py-2 text-sm text-white transition-all duration-200 hover:bg-slate-700 hover:shadow-[0_0_18px_rgba(255,255,255,0.5)] dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.5)]"
         >
-          Log Out
+          {isLoggingOut ? "Logging out..." : "Log Out"}
         </button>
       </header>
 

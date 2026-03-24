@@ -435,44 +435,94 @@ export function EditorToolbar({
           </button>
           {fxPanelOpen ? (
             <div className="absolute left-1/2 top-full z-[120] mt-1 -translate-x-1/2 rounded-xl border border-white/70 bg-white/85 p-3 shadow-2xl shadow-slate-400/20 backdrop-blur-xl dark:border-white/15 dark:bg-zinc-900/70 dark:shadow-black/25">
-            <div className="flex items-end gap-3">
-              <label className="flex flex-col gap-1 text-[11px] font-medium">
-                <span>SFX Preset</span>
-                <select
-                  className="rounded-md border border-slate-300/70 bg-white/70 px-2 py-1 text-xs dark:border-white/15 dark:bg-zinc-800/60"
-                  value={project.settings.sfxPreset}
-                  onChange={(e) => {
-                    const sfxPreset = e.target.value as SfxPreset;
-                    setProject((p) => ({
-                      ...p,
-                      settings: { ...p.settings, sfxPreset },
-                      updatedAt: Date.now(),
-                    }));
-                  }}
-                >
-                  {SFX_PRESETS.map((preset) => (
-                    <option key={preset} value={preset}>
-                      {preset}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <SettingDial
-                label="Distort"
-                value={project.settings.distortionAmount}
-                min={0}
-                max={1}
-                step={0.01}
-                decimals={2}
-                onChange={(next) =>
-                  setProject((p) => ({
-                    ...p,
-                    settings: { ...p.settings, distortionAmount: next },
-                    updatedAt: Date.now(),
-                  }))
-                }
-              />
-            </div>
+              <div className="flex flex-col gap-3">
+                <div className="flex items-end gap-3">
+                  <label className="flex flex-col gap-1 text-[11px] font-medium">
+                    <span>SFX Preset</span>
+                    <select
+                      className="rounded-md border border-slate-300/70 bg-white/70 px-2 py-1 text-xs dark:border-white/15 dark:bg-zinc-800/60"
+                      value={project.settings.sfxPreset}
+                      onChange={(e) => {
+                        const sfxPreset = e.target.value as SfxPreset;
+                        setProject((p) => ({
+                          ...p,
+                          settings: { ...p.settings, sfxPreset },
+                          updatedAt: Date.now(),
+                        }));
+                      }}
+                    >
+                      {SFX_PRESETS.map((preset) => (
+                        <option key={preset} value={preset}>
+                          {preset}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <SettingDial
+                    label="Distort"
+                    value={project.settings.distortionAmount}
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    decimals={2}
+                    onChange={(next) =>
+                      setProject((p) => ({
+                        ...p,
+                        settings: { ...p.settings, distortionAmount: next },
+                        updatedAt: Date.now(),
+                      }))
+                    }
+                  />
+                </div>
+                <div className="h-px bg-slate-300/55 dark:bg-white/15" />
+                <div className="flex items-end gap-3">
+                  <SettingDial
+                    label="Dr Vol"
+                    value={project.settings.drumVolume ?? 0.9}
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    decimals={2}
+                    onChange={(next) =>
+                      setProject((p) => ({
+                        ...p,
+                        settings: { ...p.settings, drumVolume: next },
+                        updatedAt: Date.now(),
+                      }))
+                    }
+                  />
+                  <SettingDial
+                    label="Dr Wet"
+                    value={project.settings.drumReverbWet ?? 0.2}
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    decimals={2}
+                    onChange={(next) =>
+                      setProject((p) => ({
+                        ...p,
+                        settings: { ...p.settings, drumReverbWet: next },
+                        updatedAt: Date.now(),
+                      }))
+                    }
+                  />
+                  <SettingDial
+                    label="Dr Decay"
+                    value={project.settings.drumReverbDecay ?? 2.2}
+                    min={0.2}
+                    max={10}
+                    step={0.1}
+                    decimals={1}
+                    onChange={(next) =>
+                      setProject((p) => ({
+                        ...p,
+                        settings: { ...p.settings, drumReverbDecay: next },
+                        updatedAt: Date.now(),
+                      }))
+                    }
+                  />
+                </div>
+              </div>
             </div>
           ) : null}
         </div>

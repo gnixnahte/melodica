@@ -59,6 +59,9 @@ export type ProjectSettings = {
   masterVolume: number;
   reverbWet: number;
   reverbDecay: number;
+  drumVolume: number;
+  drumReverbWet: number;
+  drumReverbDecay: number;
   sfxPreset: SfxPreset;
   distortionAmount: number;
   albumCoverUrl?: string;

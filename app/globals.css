@@ -8,7 +8,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-plus-jakarta-sans);
   --font-mono: var(--font-geist-mono);
 }
 
@@ -22,7 +22,7 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
+  font-family: var(--font-plus-jakarta-sans), "Segoe UI", sans-serif;
 }
 
 button:not(:disabled),
@@ -78,12 +78,14 @@ button:not(:disabled),
   width: 16px;
   height: 16px;
   border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.98);
-  background: rgba(255, 255, 255, 1);
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.7);
-  opacity: 0.72;
-  transform: scale(0.96);
+  border: 0 solid transparent;
+  background: transparent;
+  box-shadow: 0 0 0 rgba(255, 255, 255, 0);
+  opacity: 0;
+  transform: scale(0.7);
   transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
     opacity 0.2s ease,
     transform 0.2s ease,
     box-shadow 0.2s ease;
@@ -92,6 +94,8 @@ button:not(:disabled),
 .dashboard-slider:hover::-webkit-slider-thumb,
 .dashboard-slider:focus-visible::-webkit-slider-thumb,
 .dashboard-slider:active::-webkit-slider-thumb {
+  border: 1px solid rgba(255, 255, 255, 0.98);
+  background: rgba(255, 255, 255, 1);
   opacity: 1;
   transform: scale(1);
   box-shadow: 0 0 12px rgba(255, 255, 255, 0.8);
@@ -101,12 +105,14 @@ button:not(:disabled),
   width: 16px;
   height: 16px;
   border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.98);
-  background: rgba(255, 255, 255, 1);
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.7);
-  opacity: 0.72;
-  transform: scale(0.96);
+  border: 0 solid transparent;
+  background: transparent;
+  box-shadow: 0 0 0 rgba(255, 255, 255, 0);
+  opacity: 0;
+  transform: scale(0.7);
   transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
     opacity 0.2s ease,
     transform 0.2s ease,
     box-shadow 0.2s ease;
@@ -115,6 +121,8 @@ button:not(:disabled),
 .dashboard-slider:hover::-moz-range-thumb,
 .dashboard-slider:focus-visible::-moz-range-thumb,
 .dashboard-slider:active::-moz-range-thumb {
+  border: 1px solid rgba(255, 255, 255, 0.98);
+  background: rgba(255, 255, 255, 1);
   opacity: 1;
   transform: scale(1);
   box-shadow: 0 0 12px rgba(255, 255, 255, 0.8);
@@ -127,8 +135,8 @@ button:not(:disabled),
 }
 
 .landing-hero-art {
-  mask-image: linear-gradient(to left, #000 0%, #000 42%, rgba(0, 0, 0, 0) 82%);
-  -webkit-mask-image: linear-gradient(to left, #000 0%, #000 42%, rgba(0, 0, 0, 0) 82%);
+  mask-image: linear-gradient(to left, #000 0%, #000 55%, rgba(0, 0, 0, 0) 88%);
+  -webkit-mask-image: linear-gradient(to left, #000 0%, #000 55%, rgba(0, 0, 0, 0) 88%);
 }
 
 .landing-hero-svg {
@@ -140,7 +148,7 @@ button:not(:disabled),
 
 .landing-hero-fade {
   background:
-    linear-gradient(to left, rgba(31, 34, 42, 0) 26%, rgba(31, 34, 42, 0.95) 78%),
+    linear-gradient(to left, rgba(31, 34, 42, 0) 44%, rgba(31, 34, 42, 0.68) 90%),
     linear-gradient(to bottom, rgba(42, 45, 53, 0.85) 0%, rgba(42, 45, 53, 0) 18%),
     linear-gradient(to top, rgba(25, 28, 35, 0.82) 0%, rgba(25, 28, 35, 0) 20%);
 }

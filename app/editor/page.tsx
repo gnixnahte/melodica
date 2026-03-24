@@ -25,6 +25,7 @@ import { useEditorSave } from "./hooks/useEditorSave";
 
 const ALL_KEYS = new Set<KeyRoot>([...ALL_MAJOR_KEYS, ...ALL_MINOR_KEYS]);
 const AUDIO_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_AUDIO_BUCKET || "audio-clips";
+const OWNER_EMAIL = "ethanxing2007@gmail.com";
 const MELODY_INSTRUMENT_GAIN_DB: Record<MelodyInstrument, number> = {
   Triangle: 1,
   Saw: -6,
@@ -191,6 +192,7 @@ export default function EditorPage() {
   const searchParams = useSearchParams();
   const songIdFromUrl = searchParams.get("id");
   const [authReady, setAuthReady] = useState(false);
+  const [viewerId, setViewerId] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -202,6 +204,13 @@ export default function EditorPage() {
         router.replace("/login");
         return;
       }
+      const sessionEmail = data.session.user.email?.toLowerCase() ?? "";
+      if (sessionEmail !== OWNER_EMAIL) {
+        await supabase.auth.signOut({ scope: "local" });
+        router.replace("/login?unauthorized=1");
+        return;
+      }
+      setViewerId(data.session.user.id);
       setAuthReady(true);
     };
 
@@ -209,9 +218,19 @@ export default function EditorPage() {
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
+        const sessionEmail = session.user.email?.toLowerCase() ?? "";
+        if (sessionEmail !== OWNER_EMAIL) {
+          void supabase.auth.signOut({ scope: "local" });
+          setViewerId(null);
+          setAuthReady(false);
+          router.replace("/login?unauthorized=1");
+          return;
+        }
+        setViewerId(session.user.id);
         setAuthReady(true);
         return;
       }
+      setViewerId(null);
       setAuthReady(false);
       router.replace("/login");
     });
@@ -267,6 +286,7 @@ export default function EditorPage() {
     saveStatus,
   } = useEditorSave({
     authReady,
+    viewerId,
     songIdFromUrl,
     project,
     songId,
@@ -276,15 +296,20 @@ export default function EditorPage() {
   useEffect(() => {
     async function loadSong() {
       if (!authReady) return;
+      if (!viewerId) return;
       if (!songIdFromUrl) return;
 
       const { data, error } = await supabase
         .from("songs")
         .select("*")
         .eq("id", songIdFromUrl)
+        .eq("user_id", viewerId)
         .single();
 
-      if (error || !data) return;
+      if (error || !data) {
+        router.replace("/dashboard");
+        return;
+      }
 
       setSongId(data.id);
       const loaded = normalizeLoadedProject(data);
@@ -297,7 +322,7 @@ export default function EditorPage() {
     }
 
     void loadSong();
-  }, [authReady, markSnapshotAsSaved, songIdFromUrl]);
+  }, [authReady, markSnapshotAsSaved, router, songIdFromUrl, viewerId]);
 
   const signatureNotesRef = useRef<Record<string, NoteEvent[]>>({});
 
@@ -306,6 +331,9 @@ export default function EditorPage() {
   const synthBankRef = useRef<Map<MelodyInstrument, MelodyPolySynth>>(new Map());
   const masterGainRef = useRef<Tone.Gain | null>(null);
   const reverbRef = useRef<Tone.Reverb | null>(null);
+  const drumReverbRef = useRef<Tone.Reverb | null>(null);
+  const drumDryGainRef = useRef<Tone.Gain | null>(null);
+  const drumWetGainRef = useRef<Tone.Gain | null>(null);
   const sfxFilterRef = useRef<Tone.Filter | null>(null);
   const sfxDistortionRef = useRef<Tone.Distortion | null>(null);
   const kickRef = useRef<Tone.MembraneSynth[]>([]);
@@ -850,6 +878,15 @@ export default function EditorPage() {
     return node;
   };
 
+  const connectDrumNode = <T extends Tone.ToneAudioNode>(node: T): T => {
+    const drumDry = drumDryGainRef.current;
+    const drumReverb = drumReverbRef.current;
+    if (drumDry) node.connect(drumDry);
+    if (drumReverb) node.connect(drumReverb);
+    if (!drumDry && !drumReverb) node.toDestination();
+    return node;
+  };
+
   const getMelodySynth = (instrument: MelodyInstrument) => {
     const normalized = normalizeInstrument(instrument);
     const existing = synthBankRef.current.get(normalized);
@@ -909,7 +946,6 @@ export default function EditorPage() {
     variant = 0,
     velocity = 0.9
   ) => {
-    if (notesMuted) return;
     const key = `${drum}:${variant}`;
     const now = Tone.now();
 
@@ -987,6 +1023,12 @@ export default function EditorPage() {
       decay: Math.max(0.2, Math.min(10, project.settings.reverbDecay)),
       wet: Math.max(0, Math.min(1, project.settings.reverbWet)),
     });
+    const drumReverb = new Tone.Reverb({
+      decay: Math.max(0.2, Math.min(10, project.settings.drumReverbDecay ?? 2.2)),
+      wet: 1,
+    });
+    const drumDry = new Tone.Gain(1);
+    const drumWet = new Tone.Gain(0);
     const sfxFilter = new Tone.Filter({
       type: "lowpass",
       frequency: 20000,
@@ -997,10 +1039,16 @@ export default function EditorPage() {
       wet: 1,
     });
     reverb.connect(sfxFilter);
+    drumDry.toDestination();
+    drumReverb.connect(drumWet);
+    drumWet.toDestination();
     sfxFilter.connect(sfxDistortion);
     sfxDistortion.connect(master);
     masterGainRef.current = master;
     reverbRef.current = reverb;
+    drumReverbRef.current = drumReverb;
+    drumDryGainRef.current = drumDry;
+    drumWetGainRef.current = drumWet;
     sfxFilterRef.current = sfxFilter;
     sfxDistortionRef.current = sfxDistortion;
     synthBankRef.current.forEach((synth) => {
@@ -1011,10 +1059,16 @@ export default function EditorPage() {
     return () => {
       sfxDistortion.dispose();
       sfxFilter.dispose();
+      drumWet.dispose();
+      drumDry.dispose();
+      drumReverb.dispose();
       reverb.dispose();
       master.dispose();
       sfxDistortionRef.current = null;
       sfxFilterRef.current = null;
+      drumWetGainRef.current = null;
+      drumDryGainRef.current = null;
+      drumReverbRef.current = null;
       reverbRef.current = null;
       masterGainRef.current = null;
     };
@@ -1055,6 +1109,24 @@ export default function EditorPage() {
     reverbRef.current.decay = Math.max(0.2, Math.min(10, project.settings.reverbDecay));
     void reverbRef.current.generate();
   }, [project.settings.reverbDecay]);
+
+  useEffect(() => {
+    const drumDry = drumDryGainRef.current;
+    const drumWet = drumWetGainRef.current;
+    const drumReverb = drumReverbRef.current;
+    if (!drumDry || !drumWet || !drumReverb) return;
+
+    const drumVolume = Math.max(0, Math.min(1, project.settings.drumVolume ?? 0.9));
+    const drumReverbWet = Math.max(0, Math.min(1, project.settings.drumReverbWet ?? 0.2));
+    drumDry.gain.rampTo(drumVolume * (1 - drumReverbWet), 0.05);
+    drumWet.gain.rampTo(drumVolume * drumReverbWet, 0.05);
+    drumReverb.decay = Math.max(0.2, Math.min(10, project.settings.drumReverbDecay ?? 2.2));
+    void drumReverb.generate();
+  }, [
+    project.settings.drumVolume,
+    project.settings.drumReverbWet,
+    project.settings.drumReverbDecay,
+  ]);
 
   useEffect(() => {
     const filter = sfxFilterRef.current;
@@ -1098,19 +1170,19 @@ export default function EditorPage() {
   
     // KICKS (tight / boomy / clicky)
     kickRef.current = [
-      connectInstrumentNode(new Tone.MembraneSynth({
+      connectDrumNode(new Tone.MembraneSynth({
         pitchDecay: 0.05,
         octaves: 7,
         envelope: { attack: 0.001, decay: 0.16, sustain: 0 },
       })),
   
-      connectInstrumentNode(new Tone.MembraneSynth({
+      connectDrumNode(new Tone.MembraneSynth({
         pitchDecay: 0.06,
         octaves: 10,
         envelope: { attack: 0.001, decay: 0.30, sustain: 0 },
       })),
   
-      connectInstrumentNode(new Tone.MembraneSynth({
+      connectDrumNode(new Tone.MembraneSynth({
         pitchDecay: 0.03,
         octaves: 6,
         envelope: { attack: 0.001, decay: 0.12, sustain: 0 },
@@ -1119,17 +1191,17 @@ export default function EditorPage() {
   
     // SNARES (crisp / thicker / tight)
     snareRef.current = [
-      connectInstrumentNode(new Tone.NoiseSynth({
+      connectDrumNode(new Tone.NoiseSynth({
         noise: { type: "white" },
         envelope: { attack: 0.001, decay: 0.12, sustain: 0 },
       })),
   
-      connectInstrumentNode(new Tone.NoiseSynth({
+      connectDrumNode(new Tone.NoiseSynth({
         noise: { type: "pink" },
         envelope: { attack: 0.001, decay: 0.18, sustain: 0 },
       })),
   
-      connectInstrumentNode(new Tone.NoiseSynth({
+      connectDrumNode(new Tone.NoiseSynth({
         noise: { type: "brown" },
         envelope: { attack: 0.001, decay: 0.08, sustain: 0 },
       })),
@@ -1138,7 +1210,7 @@ export default function EditorPage() {
     // HATS (short / open-ish / bright)
     hatRef.current = [
       (() => {
-        const h = connectInstrumentNode(new Tone.MetalSynth({
+        const h = connectDrumNode(new Tone.MetalSynth({
           envelope: { attack: 0.001, decay: 0.05, release: 0.01 },
           harmonicity: 5.1,
           modulationIndex: 28,
@@ -1150,7 +1222,7 @@ export default function EditorPage() {
       })(),
     
       (() => {
-        const h = connectInstrumentNode(new Tone.MetalSynth({
+        const h = connectDrumNode(new Tone.MetalSynth({
           envelope: { attack: 0.001, decay: 0.11, release: 0.02 },
           harmonicity: 5.1,
           modulationIndex: 32,
@@ -1162,7 +1234,7 @@ export default function EditorPage() {
       })(),
     
       (() => {
-        const h = connectInstrumentNode(new Tone.MetalSynth({
+        const h = connectDrumNode(new Tone.MetalSynth({
           envelope: { attack: 0.001, decay: 0.07, release: 0.01 },
           harmonicity: 5.1,
           modulationIndex: 40,
@@ -1176,19 +1248,19 @@ export default function EditorPage() {
   
     // TOMS (low / mid / high)
     tomRef.current = [
-      connectInstrumentNode(new Tone.MembraneSynth({
+      connectDrumNode(new Tone.MembraneSynth({
         pitchDecay: 0.03,
         octaves: 4,
         envelope: { attack: 0.001, decay: 0.22, sustain: 0 },
       })),
   
-      connectInstrumentNode(new Tone.MembraneSynth({
+      connectDrumNode(new Tone.MembraneSynth({
         pitchDecay: 0.025,
         octaves: 3,
         envelope: { attack: 0.001, decay: 0.20, sustain: 0 },
       })),
   
-      connectInstrumentNode(new Tone.MembraneSynth({
+      connectDrumNode(new Tone.MembraneSynth({
         pitchDecay: 0.02,
         octaves: 2,
         envelope: { attack: 0.001, decay: 0.18, sustain: 0 },
@@ -1306,20 +1378,18 @@ export default function EditorPage() {
       }
   
       // drums on every 16th
-      if (!notesMuted) {
-        const drumHitsNow = project.drumTracks
-          .flatMap(t => t.hits)
-          .filter(h => h.step === step16);
-    
-        for (const h of drumHitsNow) {
-          const v = h.velocity ?? 0.9;
-          const i = h.variant ?? 0;
-    
-          if (h.drum === "kick") kickRef.current[i]?.triggerAttackRelease("C1", "16n", time, v);
-          if (h.drum === "snare") snareRef.current[i]?.triggerAttackRelease("16n", time, v);
-          if (h.drum === "hat") hatRef.current[i]?.triggerAttackRelease("16n", time, v);
-          if (h.drum === "tom") tomRef.current[i]?.triggerAttackRelease("G2", "16n", time, v);
-        }
+      const drumHitsNow = project.drumTracks
+        .flatMap(t => t.hits)
+        .filter(h => h.step === step16);
+
+      for (const h of drumHitsNow) {
+        const v = h.velocity ?? 0.9;
+        const i = h.variant ?? 0;
+
+        if (h.drum === "kick") kickRef.current[i]?.triggerAttackRelease("C1", "16n", time, v);
+        if (h.drum === "snare") snareRef.current[i]?.triggerAttackRelease("16n", time, v);
+        if (h.drum === "hat") hatRef.current[i]?.triggerAttackRelease("16n", time, v);
+        if (h.drum === "tom") tomRef.current[i]?.triggerAttackRelease("G2", "16n", time, v);
       }
 
       const vocalClipsNow = project.audioTracks
