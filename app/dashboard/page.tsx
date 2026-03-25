@@ -1272,7 +1272,7 @@ export default function DashboardPage() {
       <div className="mx-auto max-w-5xl rounded-3xl border border-white/60 bg-white/50 p-6 shadow-2xl shadow-slate-400/20 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20">
       <header className="flex items-center justify-between">
         <div>
-          <p className="text-sm opacity-75">{`Welcome ${viewerName}.`}</p>
+          <p className="text-base opacity-75 md:text-lg">{`Welcome ${viewerName}.`}</p>
           <h1 className="text-4xl font-bold tracking-tight md:text-5xl">Dashboard</h1>
           <p className="mt-1 text-sm opacity-80">
             Your projects will show up here.

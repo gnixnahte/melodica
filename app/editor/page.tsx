@@ -1444,9 +1444,7 @@ export default function EditorPage() {
       }
 
       const key = event.key.toLowerCase();
-      const platform = navigator.platform.toLowerCase();
-      const isMac = platform.includes("mac");
-      const hasModifier = isMac ? event.metaKey : event.ctrlKey;
+      const hasModifier = event.metaKey || event.ctrlKey;
       if (!hasModifier) return;
 
       if (key === "z") {
@@ -1459,7 +1457,7 @@ export default function EditorPage() {
         return;
       }
 
-      if (!isMac && key === "y") {
+      if (key === "y" && event.ctrlKey) {
         event.preventDefault();
         handleRedo();
       }

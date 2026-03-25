@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Project, MelodyInstrument, NoteEvent } from "@/types/project";
 import { hasNoteAt, getNoteOccupying, normalizeInstrument } from "@/lib/editorUtils";
 import {
@@ -96,6 +96,12 @@ export function PianoRoll({
   selectedAudioInputId,
   onSelectedAudioInputIdChange,
 }: PianoRollProps) {
+  type NoteSelectionBounds = {
+    beatMin: number;
+    beatMax: number;
+    pitchMin: number;
+    pitchMax: number;
+  };
   type VocalMenuState = {
     clipId: string;
     x: number;
@@ -113,12 +119,23 @@ export function PianoRoll({
 
   const [vocalMenu, setVocalMenu] = useState<VocalMenuState | null>(null);
   const [micInputMenu, setMicInputMenu] = useState<MicInputMenuState | null>(null);
+  const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
+  const [noteSelectionDraft, setNoteSelectionDraft] = useState<NoteSelectionBounds | null>(null);
   const vocalMenuRef = useRef<HTMLDivElement | null>(null);
   const micInputMenuRef = useRef<HTMLDivElement | null>(null);
   const micButtonRef = useRef<HTMLButtonElement | null>(null);
   const micClickTimeoutRef = useRef<number | null>(null);
   const vocalResizeRef = useRef<VocalResizeState | null>(null);
+  const noteSelectionDragRef = useRef<{ startBeat: number; startPitchIndex: number } | null>(
+    null
+  );
+  const copiedNotesRef = useRef<NoteEvent[]>([]);
   const melodicPitches = pitches.length > 1 ? pitches.slice(0, -1) : pitches;
+  const pitchIndexMap = useMemo(
+    () => new Map(melodicPitches.map((pitch, index) => [pitch, index])),
+    [melodicPitches]
+  );
+  const selectedNoteIdSet = useMemo(() => new Set(selectedNoteIds), [selectedNoteIds]);
   const micTrack = project.audioTracks[0];
   const clipVisuals = micTrack?.clips ?? [];
   const recordingClip =
@@ -132,6 +149,32 @@ export function PianoRoll({
   const selectedVocalClip = vocalMenu
     ? clipVisuals.find((clip) => clip.id === vocalMenu.clipId) ?? null
     : null;
+
+  const buildSelectionBounds = (
+    startBeat: number,
+    startPitchIndex: number,
+    endBeat: number,
+    endPitchIndex: number
+  ): NoteSelectionBounds => ({
+    beatMin: Math.min(startBeat, endBeat),
+    beatMax: Math.max(startBeat, endBeat),
+    pitchMin: Math.min(startPitchIndex, endPitchIndex),
+    pitchMax: Math.max(startPitchIndex, endPitchIndex),
+  });
+
+  const applyNoteSelection = useCallback((bounds: NoteSelectionBounds) => {
+    const selected = project.notes
+      .filter((note) => {
+        const pitchIndex = pitchIndexMap.get(note.pitch);
+        if (pitchIndex === undefined) return false;
+        const noteEnd = note.startBeat + note.durationBeats - 1;
+        const overlapsBeat = noteEnd >= bounds.beatMin && note.startBeat <= bounds.beatMax;
+        const inPitchRange = pitchIndex >= bounds.pitchMin && pitchIndex <= bounds.pitchMax;
+        return overlapsBeat && inPitchRange;
+      })
+      .map((note) => note.id);
+    setSelectedNoteIds(selected);
+  }, [pitchIndexMap, project.notes]);
 
   useEffect(() => {
     if (!vocalMenu) return;
@@ -183,6 +226,96 @@ export function PianoRoll({
       }
     };
   }, []);
+
+  useEffect(() => {
+    const onMouseUp = () => {
+      const drag = noteSelectionDragRef.current;
+      if (!drag) return;
+      noteSelectionDragRef.current = null;
+      if (noteSelectionDraft) {
+        applyNoteSelection(noteSelectionDraft);
+      }
+      setNoteSelectionDraft(null);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    window.addEventListener("mouseup", onMouseUp);
+    return () => window.removeEventListener("mouseup", onMouseUp);
+  }, [applyNoteSelection, noteSelectionDraft]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT")
+      ) {
+        return;
+      }
+
+      const hasModifier = event.metaKey || event.ctrlKey;
+      if (!hasModifier) {
+        if (event.key === "Escape") {
+          setSelectedNoteIds([]);
+        }
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === "c") {
+        if (selectedNoteIds.length === 0) return;
+        event.preventDefault();
+        copiedNotesRef.current = project.notes
+          .filter((note) => selectedNoteIdSet.has(note.id))
+          .map((note) => ({ ...note }));
+        return;
+      }
+
+      if (key === "v") {
+        if (copiedNotesRef.current.length === 0) return;
+        event.preventDefault();
+        const sourceNotes = copiedNotesRef.current;
+        const sourceStart = Math.min(...sourceNotes.map((note) => note.startBeat));
+        const pasteStart = Math.floor(currentStep16 / 2);
+        const beatOffset = pasteStart - sourceStart;
+        const maxBeat = project.bars * NOTE_STEPS_PER_BAR;
+        const nextIds: string[] = [];
+
+        setProject((p) => {
+          const cloned = sourceNotes
+            .map((note) => {
+              const startBeat = note.startBeat + beatOffset;
+              if (startBeat < 0 || startBeat >= maxBeat) return null;
+              const durationBeats = Math.max(1, Math.min(note.durationBeats, maxBeat - startBeat));
+              const id = crypto.randomUUID();
+              nextIds.push(id);
+              return {
+                ...note,
+                id,
+                startBeat,
+                durationBeats,
+              };
+            })
+            .filter((note): note is NoteEvent => Boolean(note));
+
+          if (cloned.length === 0) return p;
+          return {
+            ...p,
+            notes: [...p.notes, ...cloned],
+            updatedAt: Date.now(),
+          };
+        });
+        setSelectedNoteIds(nextIds);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [currentStep16, project.bars, project.notes, selectedNoteIdSet, selectedNoteIds.length, setProject]);
 
   useEffect(() => {
     const onMouseUp = () => {
@@ -416,6 +549,18 @@ export function PianoRoll({
                       const existingInstrument = normalizeInstrument(
                         noteOccupyingCell?.instrument
                       );
+                      const pitchIndex = pitchIndexMap.get(pitch);
+                      const isSelectedNote = Boolean(
+                        noteOccupyingCell && selectedNoteIdSet.has(noteOccupyingCell.id)
+                      );
+                      const isInDraftSelection = Boolean(
+                        noteSelectionDraft &&
+                          pitchIndex !== undefined &&
+                          beat >= noteSelectionDraft.beatMin &&
+                          beat <= noteSelectionDraft.beatMax &&
+                          pitchIndex >= noteSelectionDraft.pitchMin &&
+                          pitchIndex <= noteSelectionDraft.pitchMax
+                      );
                       const filledClass = noteOccupyingCell
                         ? NOTE_INSTRUMENT_COLORS[existingInstrument]
                         : "bg-emerald-500 hover:bg-emerald-600";
@@ -439,6 +584,12 @@ export function PianoRoll({
                               : isAltBar
                               ? "bg-neutral-300 dark:bg-zinc-800 hover:bg-neutral-400 dark:hover:bg-zinc-700"
                               : "bg-neutral-200 dark:bg-zinc-900 hover:bg-neutral-300 dark:hover:bg-zinc-800"
+                          } ${
+                            isSelectedNote
+                              ? "ring-2 ring-white/90 ring-inset shadow-[0_0_10px_rgba(255,255,255,0.65)]"
+                              : ""
+                          } ${
+                            !filled && isInDraftSelection ? "bg-sky-300/55 dark:bg-sky-500/35" : ""
                           }`}
                           style={{
                             width: CELL_W,
@@ -452,7 +603,42 @@ export function PianoRoll({
                             borderRightWidth:
                               isContinuation && !isNoteEnd ? 0 : 1.5,
                           }}
+                          onContextMenu={(e) => {
+                            if (!noteSelectionDragRef.current) return;
+                            e.preventDefault();
+                          }}
+                          onMouseEnter={() => {
+                            const drag = noteSelectionDragRef.current;
+                            if (!drag) return;
+                            const currentPitchIndex = pitchIndexMap.get(pitch);
+                            if (currentPitchIndex === undefined) return;
+                            setNoteSelectionDraft(
+                              buildSelectionBounds(
+                                drag.startBeat,
+                                drag.startPitchIndex,
+                                beat,
+                                currentPitchIndex
+                              )
+                            );
+                          }}
                           onMouseDown={(e) => {
+                            if (e.button === 2) {
+                              e.preventDefault();
+                              clearPendingNoteDelete();
+                              setNoteMenu(null);
+                              const currentPitchIndex = pitchIndexMap.get(pitch);
+                              if (currentPitchIndex === undefined) return;
+                              noteSelectionDragRef.current = {
+                                startBeat: beat,
+                                startPitchIndex: currentPitchIndex,
+                              };
+                              setNoteSelectionDraft(
+                                buildSelectionBounds(beat, currentPitchIndex, beat, currentPitchIndex)
+                              );
+                              document.body.style.cursor = "crosshair";
+                              document.body.style.userSelect = "none";
+                              return;
+                            }
                             clearPendingNoteDelete();
                             setNoteMenu(null);
 
