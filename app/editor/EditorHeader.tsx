@@ -6,6 +6,10 @@ export interface EditorHeaderProps {
   saveStatus: "saving" | "saved" | "error";
   projectName: string;
   onProjectNameChange: (name: string) => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
 }
 
 export function EditorHeader({
@@ -14,6 +18,10 @@ export function EditorHeader({
   saveStatus,
   projectName,
   onProjectNameChange,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
 }: EditorHeaderProps) {
   const statusLabel =
     saveStatus === "saving" ? "Saving..." : saveStatus === "error" ? "Save failed" : "Saved";
@@ -35,6 +43,36 @@ export function EditorHeader({
           style={{ width: `${Math.max(14, Math.min(42, projectName.length + 2))}ch` }}
           className="min-w-48 rounded-lg border border-white/70 bg-white/70 px-3 py-1.5 text-sm text-slate-800 outline-none ring-0 transition-colors focus:border-slate-400 dark:border-white/15 dark:bg-zinc-800/60 dark:text-slate-100"
         />
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onUndo}
+            disabled={!canUndo}
+            className={`h-8 w-8 rounded-md text-xl leading-none transition-all duration-200 ${
+              canUndo
+                ? "text-slate-700 hover:text-white hover:drop-shadow-[0_0_10px_rgba(255,255,255,0.95)] hover:[text-shadow:0_0_10px_rgba(255,255,255,0.95),0_0_18px_rgba(255,255,255,0.75)] dark:text-slate-200"
+                : "cursor-not-allowed text-slate-400 dark:text-zinc-500"
+            }`}
+            title="Undo (Cmd/Ctrl+Z)"
+            aria-label="Undo"
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            onClick={onRedo}
+            disabled={!canRedo}
+            className={`h-8 w-8 rounded-md text-xl leading-none transition-all duration-200 ${
+              canRedo
+                ? "text-slate-700 hover:text-white hover:drop-shadow-[0_0_10px_rgba(255,255,255,0.95)] hover:[text-shadow:0_0_10px_rgba(255,255,255,0.95),0_0_18px_rgba(255,255,255,0.75)] dark:text-slate-200"
+                : "cursor-not-allowed text-slate-400 dark:text-zinc-500"
+            }`}
+            title="Redo (Shift+Cmd/Ctrl+Z or Ctrl+Y)"
+            aria-label="Redo"
+          >
+            →
+          </button>
+        </div>
       </div>
       <span
         aria-live="polite"

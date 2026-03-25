@@ -505,6 +505,8 @@ export function PianoRoll({
                               return;
                             }
                             if (!noteOccupyingCell) return;
+                            // Ignore the click that immediately follows spawning a note,
+                            // so placing a note does not delete itself.
                             if (
                               justSpawnedNoteIdRef.current ===
                               noteOccupyingCell.id

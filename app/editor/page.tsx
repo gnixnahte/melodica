@@ -1,7 +1,7 @@
 "use client";
 
 import * as Tone from "tone";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createDefaultProject } from "@/lib/defaultProject";
 import { getPitches, ALL_MAJOR_KEYS, ALL_MINOR_KEYS } from "@/lib/pitches";
 import type { KeyRoot } from "@/lib/pitches";
@@ -187,6 +187,67 @@ function normalizeLoadedProject(
   return safeProject;
 }
 
+const MAX_UNDO_HISTORY = 200;
+
+type EditorState = {
+  project: Project;
+  past: Project[];
+  future: Project[];
+};
+
+type EditorAction =
+  | { type: "set"; update: React.SetStateAction<Project>; record: boolean }
+  | { type: "undo" }
+  | { type: "redo" }
+  | { type: "reset"; project: Project };
+
+function editorReducer(state: EditorState, action: EditorAction): EditorState {
+  if (action.type === "reset") {
+    return {
+      project: action.project,
+      past: [],
+      future: [],
+    };
+  }
+
+  if (action.type === "undo") {
+    if (state.past.length === 0) return state;
+    const previous = state.past[state.past.length - 1];
+    return {
+      project: previous,
+      past: state.past.slice(0, -1),
+      future: [state.project, ...state.future].slice(0, MAX_UNDO_HISTORY),
+    };
+  }
+
+  if (action.type === "redo") {
+    if (state.future.length === 0) return state;
+    const next = state.future[0];
+    return {
+      project: next,
+      past: [...state.past, state.project].slice(-MAX_UNDO_HISTORY),
+      future: state.future.slice(1),
+    };
+  }
+
+  const nextProject =
+    typeof action.update === "function"
+      ? (action.update as (prev: Project) => Project)(state.project)
+      : action.update;
+  if (Object.is(nextProject, state.project)) return state;
+  if (!action.record) {
+    return {
+      ...state,
+      project: nextProject,
+    };
+  }
+  return {
+    project: nextProject,
+    past: [...state.past, state.project].slice(-MAX_UNDO_HISTORY),
+    future: [],
+  };
+}
+
 export default function EditorPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -247,9 +308,35 @@ export default function EditorPage() {
     y: number;
   };
   
-  const [project, setProject] = useState<Project>(() =>
-    createDefaultProject("Melodica Project")
+  const [editorState, dispatchEditor] = useReducer(
+    editorReducer,
+    undefined,
+    () => ({
+      project: createDefaultProject("Melodica Project"),
+      past: [],
+      future: [],
+    })
   );
+  const project = editorState.project;
+  const setProject = useCallback<React.Dispatch<React.SetStateAction<Project>>>(
+    (update) => {
+      dispatchEditor({ type: "set", update, record: true });
+    },
+    []
+  );
+  const setProjectWithoutHistory = useCallback<
+    React.Dispatch<React.SetStateAction<Project>>
+  >((update) => {
+    dispatchEditor({ type: "set", update, record: false });
+  }, []);
+  const canUndo = editorState.past.length > 0;
+  const canRedo = editorState.future.length > 0;
+  const handleUndo = useCallback(() => {
+    dispatchEditor({ type: "undo" });
+  }, []);
+  const handleRedo = useCallback(() => {
+    dispatchEditor({ type: "redo" });
+  }, []);
   const [bpmText, setBpmText] = useState(String(project.bpm));
   const [barsText, setBarsText] = useState(String(project.bars));
   const [lowOctaveText, setLowOctaveText] = useState(String(project.lowOctave));
@@ -313,7 +400,7 @@ export default function EditorPage() {
 
       setSongId(data.id);
       const loaded = normalizeLoadedProject(data);
-      setProject(loaded);
+      dispatchEditor({ type: "reset", project: loaded });
       markSnapshotAsSaved(JSON.stringify(loaded));
       setBpmText(String(loaded.bpm));
       setBarsText(String(loaded.bars));
@@ -806,7 +893,7 @@ export default function EditorPage() {
             const uploadedUrl = await uploadVocalClip(blob);
             // Keep the local blob URL if the uploaded URL is missing or malformed.
             if (uploadedUrl && uploadedUrl.startsWith("http")) {
-              setProject((p) => {
+              setProjectWithoutHistory((p) => {
                 const tracks = ensureMicTrack(p);
                 const primary = tracks[0];
                 return {
@@ -1343,6 +1430,45 @@ export default function EditorPage() {
     };
   }, [noteMenu]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT")
+      ) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      const platform = navigator.platform.toLowerCase();
+      const isMac = platform.includes("mac");
+      const hasModifier = isMac ? event.metaKey : event.ctrlKey;
+      if (!hasModifier) return;
+
+      if (key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+        return;
+      }
+
+      if (!isMac && key === "y") {
+        event.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleRedo, handleUndo]);
+
   const selectedNote = noteMenu
     ? project.notes.find((n) => n.id === noteMenu.noteId) ?? null
     : null;
@@ -1502,6 +1628,10 @@ export default function EditorPage() {
             updatedAt: Date.now(),
           }))
         }
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
       />
       <EditorToolbar
         project={project}
