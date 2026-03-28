@@ -1254,7 +1254,7 @@ export default function DashboardPage() {
 
   if (!authReady) {
     return (
-      <main className="min-h-screen bg-[radial-gradient(circle_at_top,#ffffff_0%,#e8edf4_50%,#dfe6ef_100%)] p-8 dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
+      <main className="ui-desktop-tight dashboard-desktop-compact min-h-screen bg-[radial-gradient(circle_at_top,#ffffff_0%,#e8edf4_50%,#dfe6ef_100%)] p-8 dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
         <div className="mx-auto max-w-5xl rounded-3xl border border-white/60 bg-white/50 p-6 shadow-2xl shadow-slate-400/20 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20">
           <p className="text-sm opacity-80">Checking session...</p>
         </div>
@@ -1274,7 +1274,7 @@ export default function DashboardPage() {
         : "mt-3 grid grid-cols-1 gap-3";
   
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#ffffff_0%,#e8edf4_50%,#dfe6ef_100%)] p-8 dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
+    <main className="ui-desktop-tight dashboard-desktop-compact min-h-screen bg-[radial-gradient(circle_at_top,#ffffff_0%,#e8edf4_50%,#dfe6ef_100%)] p-8 dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
       <div className="mx-auto max-w-5xl rounded-3xl border border-white/60 bg-white/50 p-6 shadow-2xl shadow-slate-400/20 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20">
       <header className="flex items-center justify-between">
         <div>

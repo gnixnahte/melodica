@@ -33,7 +33,7 @@ export default function Home() {
   };
 
   return (
-    <div className="landing-page-bg relative px-6 md:px-10 lg:px-16">
+    <div className="ui-desktop-tight landing-page-bg relative px-6 md:px-10 lg:px-16">
       <div
         className="landing-hero-art pointer-events-none absolute right-[calc(-10rem-20px)] top-0 hidden h-screen w-[calc(56vw+15px)] min-w-[775px] max-w-[1215px] lg:block xl:right-[calc(-12rem-20px)]"
         style={{ opacity: 0.9 * heroOpacity }}

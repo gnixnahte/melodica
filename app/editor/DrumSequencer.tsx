@@ -101,15 +101,15 @@ export function DrumSequencer({
   return (
     <div
       ref={containerRef}
-      className="relative mx-4 mb-3 shrink-0 rounded-2xl border border-white/60 bg-white/50 p-2 shadow-xl shadow-slate-300/15 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20"
+      className="relative mx-4 mb-2 shrink-0 rounded-2xl border border-white/60 bg-white/50 p-1.5 shadow-xl shadow-slate-300/15 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20"
     >
-      <div className="mb-2 text-sm font-medium">Drums</div>
+      <div className="mb-1.5 text-sm font-medium">Drums</div>
       <div className="flex gap-2">
         <div className="w-14">
           {project.drumTracks.map((track) => (
             <button
               key={track.id}
-              className="h-[25.5px] w-full truncate rounded-md border border-white/65 bg-white/40 px-1 text-[10px] text-slate-800 backdrop-blur-md transition-all duration-200 hover:bg-white/55 hover:shadow-[0_0_12px_rgba(255,255,255,0.7)] dark:border-white/25 dark:bg-zinc-700/35 dark:text-slate-100 dark:hover:bg-zinc-700/55 dark:hover:shadow-[0_0_12px_rgba(255,255,255,0.35)]"
+              className="h-[22px] w-full truncate rounded-md border border-white/65 bg-white/40 px-1 text-[10px] text-slate-800 backdrop-blur-md transition-all duration-200 hover:bg-white/55 hover:shadow-[0_0_12px_rgba(255,255,255,0.7)] dark:border-white/25 dark:bg-zinc-700/35 dark:text-slate-100 dark:hover:bg-zinc-700/55 dark:hover:shadow-[0_0_12px_rgba(255,255,255,0.35)]"
               type="button"
               onDoubleClick={(e) => {
                 if (!containerRef.current) return;
@@ -165,7 +165,7 @@ export function DrumSequencer({
                     return (
                       <button
                         key={`${track.id}-${step}`}
-                        className={`h-[27px] transition-colors border-t-[1.5px] border-b-[1.5px] border-neutral-400/80 dark:border-zinc-600/80 ${
+                        className={`h-[23px] transition-colors border-t-[1.5px] border-b-[1.5px] border-neutral-400/80 dark:border-zinc-600/80 ${
                           hit ? "bg-emerald-500 hover:bg-emerald-600" : ""
                         } ${
                           !hit
@@ -230,11 +230,11 @@ export function DrumSequencer({
           </div>
         </div>
       </div>
-      <div className="mt-2 flex gap-2">
+      <div className="mt-1.5 flex gap-2">
         <div className="w-14 shrink-0" />
         <button
           type="button"
-          className="h-8 w-full rounded-lg border border-white/65 bg-white/45 text-lg font-semibold text-slate-700 backdrop-blur-md transition-all duration-200 hover:bg-white/60 hover:shadow-[0_0_18px_rgba(255,255,255,0.72)] dark:border-white/20 dark:bg-zinc-700/40 dark:text-slate-100 dark:hover:bg-zinc-700/60 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
+          className="h-7 w-full rounded-lg border border-white/65 bg-white/45 text-lg font-semibold text-slate-700 backdrop-blur-md transition-all duration-200 hover:bg-white/60 hover:shadow-[0_0_18px_rgba(255,255,255,0.72)] dark:border-white/20 dark:bg-zinc-700/40 dark:text-slate-100 dark:hover:bg-zinc-700/60 dark:hover:shadow-[0_0_18px_rgba(255,255,255,0.35)]"
           onClick={() =>
             setProject((p) => ({
               ...p,

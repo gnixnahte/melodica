@@ -1591,7 +1591,7 @@ function EditorPageContent() {
 
   if (!authReady) {
     return (
-      <main className="flex h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
+      <main className="flex h-[100dvh] items-center justify-center bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
         <div className="rounded-2xl border border-white/60 bg-white/60 px-8 py-6 text-center backdrop-blur-md dark:border-white/10 dark:bg-zinc-900/40">
           <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
             Loading your session
@@ -1613,7 +1613,7 @@ function EditorPageContent() {
   }
 
   return (
-    <main className="flex h-screen flex-col bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
+    <main className="editor-desktop-scale flex h-[100dvh] flex-col bg-[radial-gradient(circle_at_top,#ffffff_0%,#e7ecf3_55%,#dce4ee_100%)] dark:bg-[radial-gradient(circle_at_top,#353844_0%,#2c2f38_55%,#23262e_100%)]">
       <EditorHeader
         onExport={handleExport}
         onBackToDashboard={handleBackToDashboard}

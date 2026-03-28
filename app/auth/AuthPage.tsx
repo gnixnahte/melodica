@@ -69,7 +69,7 @@ export function AuthPage({ variant = "signup" }: { variant?: AuthPageVariant }) 
       : "Continue with Google to access your projects.";
 
   return (
-    <main className="landing-page-bg relative flex min-h-screen items-center justify-center overflow-hidden p-8">
+    <main className="ui-desktop-tight landing-page-bg relative flex min-h-screen items-center justify-center overflow-hidden p-8">
       <div className="pointer-events-none absolute inset-0">
         <Image
           src="/landing-reference.png"

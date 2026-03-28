@@ -408,7 +408,7 @@ export function PianoRoll({
   };
 
   return (
-    <div className="mx-4 mb-2 mt-2 flex-1 overflow-auto rounded-2xl border border-white/60 bg-white/50 shadow-xl shadow-slate-300/15 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20">
+    <div className="mx-4 mb-1 mt-1 flex-[2.8_1_0%] overflow-auto rounded-2xl border border-white/60 bg-white/50 shadow-xl shadow-slate-300/15 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/35 dark:shadow-black/20">
       <div className="flex flex-row pt-2 pb-2 pl-2 text-sm">
         <div className="mr-2 flex shrink-0 flex-col">
           <div className="mb-1 h-8" />

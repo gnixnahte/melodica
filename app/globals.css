@@ -209,3 +209,20 @@ button:not(:disabled),
     0 0 0 3px rgba(217, 70, 239, 0.38),
     0 0 20px rgba(217, 70, 239, 0.68);
 }
+
+@media (min-width: 1200px) {
+  .editor-desktop-scale,
+  .ui-desktop-tight {
+    zoom: 0.9;
+  }
+
+  .editor-desktop-scale {
+    /* Compensate for desktop zoom so the editor still fills the full viewport height. */
+    height: calc(100dvh / 0.9);
+    min-height: calc(100dvh / 0.9);
+  }
+
+  .dashboard-desktop-compact {
+    zoom: 0.86;
+  }
+}
