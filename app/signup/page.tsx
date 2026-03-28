@@ -3,11 +3,11 @@
 import { Suspense } from "react";
 import { AuthPage } from "@/app/auth/AuthPage";
 
-function LoginContent() {
-  return <AuthPage variant="login" />;
+function SignupContent() {
+  return <AuthPage variant="signup" />;
 }
 
-export default function LoginPage() {
+export default function SignupPage() {
   return (
     <Suspense
       fallback={
@@ -16,7 +16,7 @@ export default function LoginPage() {
         </main>
       }
     >
-      <LoginContent />
+      <SignupContent />
     </Suspense>
   );
 }

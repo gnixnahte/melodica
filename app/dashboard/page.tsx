@@ -261,33 +261,39 @@ async function loadMp3EncoderCtor(): Promise<Mp3EncoderCtor> {
   return loadMp3EncoderFromVendorScript();
 }
 
-async function encodeAudioBufferToMp3(audioBuffer: AudioBuffer) {
+type Mp3EncodableAudioBuffer = {
+  numberOfChannels: number;
+  sampleRate: number;
+  getChannelData: (channel: number) => Float32Array;
+};
+
+async function encodeAudioBufferToMp3(audioBuffer: Mp3EncodableAudioBuffer) {
   const channels = Math.max(1, Math.min(2, audioBuffer.numberOfChannels));
   const left = toInt16Pcm(audioBuffer.getChannelData(0));
   const right = channels === 2 ? toInt16Pcm(audioBuffer.getChannelData(1)) : left;
   const Mp3EncoderCtor = await loadMp3EncoderCtor();
   const encoder = new Mp3EncoderCtor(channels, audioBuffer.sampleRate, 192);
   const blockSize = 1152;
-  const mp3Chunks: Uint8Array[] = [];
+  const mp3Bytes: number[] = [];
 
   if (channels === 2) {
     for (let i = 0; i < left.length; i += blockSize) {
       const leftChunk = left.subarray(i, i + blockSize);
       const rightChunk = right.subarray(i, i + blockSize);
       const encoded = encoder.encodeBuffer(leftChunk, rightChunk);
-      if (encoded.length > 0) mp3Chunks.push(new Uint8Array(encoded));
+      if (encoded.length > 0) mp3Bytes.push(...encoded);
     }
   } else {
     for (let i = 0; i < left.length; i += blockSize) {
       const chunk = left.subarray(i, i + blockSize);
       const encoded = encoder.encodeBuffer(chunk);
-      if (encoded.length > 0) mp3Chunks.push(new Uint8Array(encoded));
+      if (encoded.length > 0) mp3Bytes.push(...encoded);
     }
   }
 
   const flushed = encoder.flush();
-  if (flushed.length > 0) mp3Chunks.push(new Uint8Array(flushed));
-  return new Blob(mp3Chunks, { type: "audio/mpeg" });
+  if (flushed.length > 0) mp3Bytes.push(...flushed);
+  return new Blob([new Uint8Array(mp3Bytes)], { type: "audio/mpeg" });
 }
 
 export default function DashboardPage() {
@@ -362,7 +368,7 @@ export default function DashboardPage() {
     stopAllVocalAudio();
     Tone.Transport.stop();
     Tone.Transport.cancel();
-    Tone.Transport.set({ position: 0 });
+    Tone.Transport.seconds = 0;
     playbackStepRef.current = 0;
     totalStepsRef.current = 1;
     playbackDurationSecondsRef.current = 0;

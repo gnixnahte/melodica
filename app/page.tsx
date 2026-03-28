@@ -5,6 +5,7 @@ import Link from "next/link";
 
 export default function Home() {
   const [heroOpacity, setHeroOpacity] = useState(1);
+  const [detailsSection, setDetailsSection] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     const updateOpacity = () => {
@@ -21,6 +22,15 @@ export default function Home() {
       window.removeEventListener("resize", updateOpacity);
     };
   }, []);
+
+  const handleScrollToDetails = () => {
+    if (!detailsSection) return;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    detailsSection.scrollIntoView({
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+      block: "start",
+    });
+  };
 
   return (
     <div className="landing-page-bg relative px-6 md:px-10 lg:px-16">
@@ -51,20 +61,32 @@ export default function Home() {
           <p className="relative z-10 mt-4 max-w-2xl text-base text-slate-300/75 sm:text-lg">
             Build ideas fast, tweak them live, and export when you are ready.
           </p>
-          <div className="relative z-10 mt-10 flex flex-wrap gap-3">
-            <Link href="/login" className="auth-glow-btn rounded-md border border-white/25 bg-white/90 px-6 py-3 text-base font-semibold text-slate-900 shadow-sm backdrop-blur hover:bg-white">
-              Get Started
-            </Link>
-            <Link href="/dashboard" className="auth-glow-btn rounded-md border border-white/25 bg-slate-900/90 px-6 py-3 text-base font-semibold text-white shadow-sm hover:bg-slate-800">
-              Dashboard
-            </Link>
+          <div className="relative z-10 mt-10 w-fit">
+            <div className="flex flex-wrap gap-3">
+              <Link href="/login" className="auth-glow-btn rounded-md border border-white/25 bg-white/90 px-6 py-3 text-base font-semibold text-slate-900 shadow-sm backdrop-blur hover:bg-white">
+                Dashboard
+              </Link>
+              <Link href="/signup" className="auth-glow-btn landing-signup-btn rounded-md px-6 py-3 text-base font-semibold text-white">
+                Get Started
+              </Link>
+            </div>
+            <button
+              type="button"
+              onClick={handleScrollToDetails}
+              className="landing-scroll-arrow mx-auto mt-8 block"
+              aria-label="Scroll to more information"
+            >
+              <svg viewBox="0 0 260 36" className="landing-scroll-arrow-svg" aria-hidden="true">
+                <path d="M8 8 L130 28 L252 8" />
+              </svg>
+            </button>
           </div>
-          <p className="relative z-10 mt-12 text-xs uppercase tracking-[0.2em] text-slate-400/70">
-            Scroll for more
-          </p>
         </section>
 
-        <section className="flex min-h-[95vh] flex-col justify-center border-t border-white/12 py-28 sm:py-36">
+        <section
+          ref={setDetailsSection}
+          className="flex min-h-[95vh] flex-col justify-center border-t border-white/12 py-28 sm:py-36"
+        >
           <p className="text-xs uppercase tracking-[0.22em] text-slate-300/70">01 / Build the spark</p>
           <h2 className="mt-5 max-w-4xl text-4xl font-bold text-white sm:text-5xl md:text-6xl">
             Go from blank page to your first playable idea in minutes

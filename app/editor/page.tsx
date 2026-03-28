@@ -1,7 +1,7 @@
 "use client";
 
 import * as Tone from "tone";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createDefaultProject } from "@/lib/defaultProject";
 import { getPitches, ALL_MAJOR_KEYS, ALL_MINOR_KEYS } from "@/lib/pitches";
 import type { KeyRoot } from "@/lib/pitches";
@@ -248,7 +248,7 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
   };
 }
 
-export default function EditorPage() {
+function EditorPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const songIdFromUrl = searchParams.get("id");
@@ -1720,5 +1720,19 @@ export default function EditorPage() {
         />
       )}
     </main>
+  );
+}
+
+export default function EditorPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center p-8">
+          <p className="text-sm opacity-70">Loading editor…</p>
+        </main>
+      }
+    >
+      <EditorPageContent />
+    </Suspense>
   );
 }
