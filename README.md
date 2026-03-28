@@ -81,7 +81,7 @@ Add owner-only policies on `storage.objects` for each bucket:
 
 After first deploy, copy your Vercel URL and set it in Supabase Auth:
 
-- Site URL: `https://<your-app>.vercel.app`
+- Site URL: `https://melodica-b3wb.vercel.app`
 - Redirect URLs: include localhost and your Vercel URL(s)
 
 ## Notes
