@@ -1,33 +1,41 @@
 # Melodica
 
-Melodica is a browser-based music sketchpad built with Next.js, Tone.js, and Supabase.
+Melodica is a browser-based music sketchpad for capturing ideas fast: lay down melody, add drums, record vocals, and export your draft to MP3.
 
-## Features
+![Melodica landing screen](public/landing-reference.png)
 
-- Landing page with auth entry points
+## Why Melodica
+
+- Write and audition ideas directly in the browser
+- Keep projects synced with Supabase-backed persistence
+- Export sketches to MP3 without leaving the editor
+- Attach album art so drafts feel like real releases
+
+## Feature Highlights
+
 - Google OAuth login/signup
-- Project dashboard with save/load/rename/delete
-- Browser music editor (melody + drums + vocals)
-- MP3 export
+- Dashboard for creating, loading, renaming, and deleting projects
+- Multi-lane editor (melody + drums + vocals)
+- MP3 export pipeline in the browser
 - Album cover upload support
 
 ## Tech Stack
 
-- Next.js (App Router, TypeScript)
-- React
-- Tailwind CSS
+- Next.js 16 (App Router + TypeScript)
+- React 19
+- Tailwind CSS 4
 - Tone.js
 - Supabase (Auth, Postgres, Storage)
 
-## Local Setup
+## Quickstart
 
-1. Install dependencies:
+1. Install dependencies.
 
 ```bash
 npm install
 ```
 
-2. Create `.env.local`:
+2. Create `.env.local` in the project root.
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=https://<your-project-ref>.supabase.co
@@ -38,24 +46,21 @@ NEXT_PUBLIC_SUPABASE_COVER_BUCKET=album-covers
 NEXT_PUBLIC_SUPABASE_AUDIO_BUCKET=audio-clips
 ```
 
-3. Run dev server:
+3. Start the dev server.
 
 ```bash
 npm run dev
 ```
 
-4. Build locally (recommended before deploy):
-
-```bash
-npm run build
-```
+4. Open `http://localhost:3000`.
 
 ## Supabase Setup
 
 ### Database
 
-- Run migrations in `supabase/migrations/`.
-- Ensure `public.songs` has RLS enabled and ownership policies active.
+1. Run migrations from `supabase/migrations/`.
+2. Confirm `public.songs` has RLS enabled.
+3. Confirm ownership policies are active.
 
 ### Storage
 
@@ -66,25 +71,28 @@ Create private buckets:
 
 Add owner-only policies on `storage.objects` for each bucket:
 
-- `select/insert/update/delete` where `owner = auth.uid()`
+- `select` where `owner = auth.uid()`
+- `insert` where `owner = auth.uid()`
+- `update` where `owner = auth.uid()`
+- `delete` where `owner = auth.uid()`
 
-## Deploy (Vercel)
+## Deploying To Vercel
 
-1. Import repo into Vercel.
-2. Framework preset: `Next.js`.
-3. Root directory: `./`.
-4. Set env vars in Vercel:
+1. Import this repo into Vercel.
+2. Use the `Next.js` framework preset.
+3. Keep root directory as `./`.
+4. Add environment variables:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - optional bucket vars
+   - Optional bucket vars above
 5. Deploy.
 
-After first deploy, copy your Vercel URL and set it in Supabase Auth:
+After first deploy, add your deployed URL to Supabase Auth settings:
 
-- Site URL: `https://melodica-b3wb.vercel.app`
-- Redirect URLs: include localhost and your Vercel URL(s)
+- Site URL: `https://your-app.vercel.app`
+- Redirect URLs: include both localhost and production URLs
 
-## Notes
+## Current Access Model
 
-- This project currently includes an owner-only auth gate in app logic.
-- If you want multi-user access, remove owner-email checks and adjust policies accordingly.
+- The app currently includes an owner-only gate in app logic.
+- To support true multi-user usage, remove owner-email checks and update RLS/policies accordingly.
