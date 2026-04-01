@@ -3,6 +3,10 @@
 :root {
   --background: #eef2f6;
   --foreground: #1f2937;
+  --font-plus-jakarta-sans:
+    "Avenir Next", Avenir, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-geist-mono:
+    "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 @theme inline {
